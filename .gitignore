@@ -1,0 +1,35 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Flutter / Android (the roadside/ subproject if present)
+roadside/.dart_tool/
+roadside/.flutter-plugins
+roadside/.flutter-plugins-dependencies
+roadside/.metadata
+roadside/build/
+roadside/.idea/
+roadside/.gradle/
+roadside/.pub-cache/
+roadside/local.properties
+roadside/android/.gradle/
+roadside/android/app/.cxx/
+roadside/android/app/build/
+roadside/android/build/
+roadside/android/local.properties
+roadside/**/GeneratedPluginRegistrant.*
+
+# Node / build artifacts (in case anyone adds tooling later)
+node_modules/
+dist/
+.cache/

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GEOai — Live Map</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <div class="loading-screen" id="loadingScreen">
+    <canvas class="loading-canvas" id="loadingCanvas"></canvas>
+    <div class="loading-vignette"></div>
+    <div class="loading-content">
+      <div class="loading-brand" aria-label="GEOAI">
+        <span class="brand-geo">GEO</span><span class="brand-ai">AI</span>
+      </div>
+      <div class="loading-tagline">Pavement Distress Detection System</div>
+
+      <div class="loading-status">
+        <span class="loading-spinner"></span>
+        <span class="loading-status-text" id="loadingStatusText">Initialising map</span>
+      </div>
+
+      <div class="loading-bar"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
+
+      <div class="loading-dots" id="loadingDots">
+        <span class="loading-dot" data-stage="0"></span>
+        <span class="loading-dot" data-stage="1"></span>
+        <span class="loading-dot" data-stage="2"></span>
+        <span class="loading-dot" data-stage="3"></span>
+        <span class="loading-dot" data-stage="4"></span>
+      </div>
+
+      <div class="loading-hint">Move your cursor · click to ripple</div>
+    </div>
+  </div>
+
+  <div class="toolbar" id="toolbar">
+    <div class="search-wrap" id="searchWrap">
+      <input type="text" id="searchInput" placeholder="Type Location" autocomplete="off" />
+      <button class="search-icon-btn" id="searchTrigger" aria-label="Search location">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+      </button>
+      <div class="search-results" id="searchResults"></div>
+    </div>
+
+    <div class="settings-wrap" id="settingsWrap">
+      <button class="settings-icon-btn" id="settingsTrigger" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+      <div class="settings-panel" id="settingsPanel">
+        <div class="settings-label">Map style</div>
+        <div class="settings-options" id="settingsOptions">
+          <button class="settings-option active" data-style="light">Light</button>
+          <button class="settings-option" data-style="dark">Dark</button>
+          <button class="settings-option" data-style="voyager">Voyager</button>
+          <button class="settings-option" data-style="satellite">Satellite</button>
+          <button class="settings-option" data-style="backdrop">Minimal</button>
+          <button class="settings-option" data-style="toner">Toner</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="severity-pill" id="timePill" hidden>
+    <span class="severity-pill-dot" id="timePillDot"></span>
+    <span class="severity-pill-text">Showing <strong id="timePillLabel">Day</strong> captures</span>
+    <button class="severity-pill-close" id="timePillClose" aria-label="Clear time filter">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+
+  <div class="severity-pill" id="severityPill" hidden>
+    <span class="severity-pill-dot" id="severityPillDot"></span>
+    <span class="severity-pill-text">You've selected <strong id="severityPillLabel">Moderate</strong> Severity</span>
+    <button class="severity-pill-close" id="severityPillClose" aria-label="Clear severity filter">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="GEOAI">
+      <span class="brand-geo">GEO</span><span class="brand-ai">AI</span>
+    </a>
+    <nav class="nav-pill" aria-label="Primary">
+      <a href="#" class="nav-item active" data-page="map">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon>
+          <line x1="9" y1="3" x2="9" y2="18"></line>
+          <line x1="15" y1="6" x2="15" y2="21"></line>
+        </svg>
+        <span class="nav-label">Map</span>
+      </a>
+      <a href="#" class="nav-item" data-page="about">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <span class="nav-label">About</span>
+      </a>
+      <a href="#" class="nav-item" data-page="filters">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+        </svg>
+        <span class="nav-label">Filters</span>
+      </a>
+    </nav>
+  </header>
+
+  <main>
+    <div id="map"></div>
+
+    <svg class="card-connectors" id="cardConnectors" aria-hidden="true"></svg>
+    <div class="card-stack" id="cardStack"></div>
+
+    <div class="about-stack" id="aboutStack" aria-hidden="true">
+      <div class="about-card">
+        <div class="about-brand" aria-label="GEOAI">
+          <span class="brand-geo">GEO</span><span class="brand-ai">AI</span>
+        </div>
+        <div class="about-tagline">Pavement Distress Detection System</div>
+        <hr class="about-divider" />
+
+        <section class="about-section">
+          <div class="about-section-title">What is it</div>
+          <p class="about-text">
+            <span class="brand-inline"><span class="brand-geo">GEO</span><span class="brand-ai">AI</span></span>
+            detects damage on roads from ordinary smartphone photos. A citizen opens the
+            RoadSide app, takes a picture of a road, and within seconds the system says whether
+            the road is damaged, what kind of damage it is (crack, pothole, etc.), how severe
+            it looks, and how confident it is in that answer. Photos with low confidence are
+            routed to a human expert for review. Over time, the model learns from those corrections.
+          </p>
+        </section>
+
+        <section class="about-section">
+          <div class="about-section-title">How it works</div>
+          <ol class="about-steps">
+            <li><strong>Capture.</strong> RoadSide mobile app uploads a JPEG and GPS coordinates to Cloudinary.</li>
+            <li><strong>Queue.</strong> A Postgres trigger creates an <code>assessments</code> row in Supabase with status <code>pending</code>.</li>
+            <li><strong>Classify.</strong> An asyncio worker on an A5000 GPU claims a batch (<code>FOR UPDATE SKIP LOCKED</code>), runs the two-stage pipeline, and writes results back.</li>
+            <li><strong>Review.</strong> Anything below 80% confidence is flagged for an expert; corrections feed future fine-tuning.</li>
+            <li><strong>Surface.</strong> Civic authorities see the live hotspot map you're using right now.</li>
+          </ol>
+        </section>
+
+        <section class="about-section">
+          <div class="about-section-title">The AI pipeline</div>
+          <p class="about-text">
+            A Qwen2.5-VL-7B vision-language model fine-tuned on RDD2022 and GAPs V2.
+            Confidence is read from raw model logits — not from string-matching the response.
+          </p>
+          <div class="about-stages">
+            <div class="about-stage">
+              <div class="about-stage-num">1</div>
+              <div>
+                <div class="about-stage-name">Binary detection</div>
+                <div class="about-stage-detail">First-token softmax over the Normal/Distress class tokens. 76.5% accuracy on the Phase 1 baseline.</div>
+              </div>
+            </div>
+            <div class="about-stage">
+              <div class="about-stage-num">2</div>
+              <div>
+                <div class="about-stage-name">Type &amp; severity</div>
+                <div class="about-stage-detail">Geometric mean of per-token probabilities. Recognises longitudinal (D00), transverse (D10), alligator (D20), pothole (D40), block crack (D43) — plus zero-shot generalisation to unseen distress types via taxonomy injection.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="about-section">
+          <div class="about-section-title">Severity scale</div>
+          <div class="about-severities">
+            <div class="about-sev"><span class="dot" style="background:#22c55e"></span><div><strong>Less</strong><span> · cosmetic, monitor</span></div></div>
+            <div class="about-sev"><span class="dot" style="background:#facc15"></span><div><strong>Moderate</strong><span> · schedule repair</span></div></div>
+            <div class="about-sev"><span class="dot" style="background:#dc2626"></span><div><strong>Red Alert</strong><span> · structural risk, fix soon</span></div></div>
+          </div>
+        </section>
+
+        <section class="about-section">
+          <div class="about-section-title">Tech stack</div>
+          <div class="about-chips">
+            <span class="about-chip">Qwen2.5-VL-7B</span>
+            <span class="about-chip">PyTorch</span>
+            <span class="about-chip">FastAPI</span>
+            <span class="about-chip">Supabase Postgres</span>
+            <span class="about-chip">Cloudinary</span>
+            <span class="about-chip">Leaflet</span>
+            <span class="about-chip">MapTiler</span>
+            <span class="about-chip">A5000 GPU</span>
+          </div>
+        </section>
+
+        <section class="about-section">
+          <div class="about-section-title">Roadmap</div>
+          <ul class="about-phases">
+            <li><span class="about-phase-tag done">Done</span> Two-stage pipeline, real-time worker, expert UI, baseline eval</li>
+            <li><span class="about-phase-tag done">Done</span>
+              <span class="brand-inline"><span class="brand-geo">GEO</span><span class="brand-ai">AI</span></span>
+              WebGIS — civic hotspot map (this page)</li>
+            <li><span class="about-phase-tag wip">Next</span> Phase 2: QLoRA fine-tuning on RDD + GAPs combined</li>
+            <li><span class="about-phase-tag wip">Next</span> Phase 3: expert-in-the-loop few-shot prompt injection</li>
+          </ul>
+        </section>
+
+        <hr class="about-divider" />
+        <section class="about-section about-credits">
+          <div class="about-section-title">Authors</div>
+          <div class="about-authors">
+            <span>Suraj</span>
+            <span>Richik Chaudhuri</span>
+            <span>Sushant Deo</span>
+          </div>
+          <div class="about-meta">
+            Capstone Project · BMSCE, Bengaluru · April 2026 ·
+            <span class="brand-inline brand-inline--tiny"><span class="brand-geo">GEO</span><span class="brand-ai">AI</span></span>
+            v1.0
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="filter-stack" id="filterStack" aria-hidden="true">
+      <div class="filter-card" id="filterRoot">
+        <div class="filter-header">Filter by</div>
+        <button class="filter-option" data-filter="issues">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
+            <polyline points="16 7 22 7 22 13"></polyline>
+          </svg>
+          <span>Top Locations</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+        <button class="filter-option" data-filter="severity">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+          <span>Filter by Severity</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+        <button class="filter-option" data-filter="time">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M12 3v18M3 12h18"></path>
+          </svg>
+          <span>Filter by Time</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div class="filter-card" id="filterIssues" hidden>
+        <div class="filter-header">By frequency · descending</div>
+        <div class="filter-list" id="filterIssuesList"></div>
+      </div>
+
+      <div class="filter-card" id="filterSeverity" hidden>
+        <div class="filter-header">Severity</div>
+        <button class="filter-option" data-severity="Low">
+          <span class="dot" style="background:#22c55e"></span>
+          <span>Less</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+        <button class="filter-option" data-severity="Medium">
+          <span class="dot" style="background:#facc15"></span>
+          <span>Moderate</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+        <button class="filter-option" data-severity="High">
+          <span class="dot" style="background:#dc2626"></span>
+          <span>Red Alert</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+        <button class="filter-option" data-severity="all">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <span>Search all</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div class="filter-card" id="filterTime" hidden>
+        <div class="filter-header">Capture time</div>
+        <button class="filter-option" data-time="day">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+          </svg>
+          <span>Day captures</span>
+        </button>
+        <button class="filter-option" data-time="night">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <span>Night captures</span>
+        </button>
+        <button class="filter-option" data-time="all">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"></path>
+          </svg>
+          <span>Show all</span>
+        </button>
+      </div>
+
+      <div class="filter-card" id="filterLocations" hidden>
+        <div class="filter-header" id="filterLocationsTitle">Locations</div>
+        <div class="filter-list" id="filterLocationsList"></div>
+      </div>
+    </div>
+
+    <div class="status-chip" id="status">Loading data…</div>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js"></script>
+</body>
+</html>
