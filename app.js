@@ -769,7 +769,11 @@ function isDaytime(timestampLike, lat, lng) {
 }
 
 function rowIsDaytime(row) {
-  const ts = row.processed_at || row.created_at;
+  // Use the CAPTURE time (created_at = photo upload time on the assessment
+  // row), not processed_at (AI classification time, which may be hours or
+  // days later). A photo taken at 11pm but processed at 9am the next morning
+  // was incorrectly being flagged as "day" before this fix.
+  const ts = row.created_at || row.processed_at;
   return isDaytime(ts, row.latitude, row.longitude);
 }
 
