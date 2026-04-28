@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer ring -->
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@color/shutter_ring_outer" />
+        </shape>
+    </item>
+    <!-- Gap to create ring effect -->
+    <item
+        android:left="3dp"
+        android:top="3dp"
+        android:right="3dp"
+        android:bottom="3dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/shutter_ring_gap" />
+        </shape>
+    </item>
+</layer-list>

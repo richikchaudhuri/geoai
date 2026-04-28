@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="280dp"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/settings_dialog_bg"
+    android:padding="24dp">
+
+    <!-- Title -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Theme"
+        android:textColor="@color/settings_title"
+        android:textSize="28sp"
+        android:fontFamily="@font/sf_display_light"
+        android:layout_marginBottom="20dp" />
+
+    <!-- Dark Mode option -->
+    <LinearLayout
+        android:id="@+id/optionDark"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/settings_option_bg"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_moon"
+            app:tint="@color/settings_option_text"
+            android:layout_marginEnd="14dp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Dark Mode"
+            android:textColor="@color/settings_option_text"
+            android:textSize="18sp"
+            android:fontFamily="@font/sf_display_light" />
+
+        <View
+            android:id="@+id/radioDark"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:background="@drawable/radio_unselected" />
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="4dp" />
+
+    <!-- Light Mode option -->
+    <LinearLayout
+        android:id="@+id/optionLight"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/settings_option_bg"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_sun"
+            app:tint="@color/settings_option_text"
+            android:layout_marginEnd="14dp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Light Mode"
+            android:textColor="@color/settings_option_text"
+            android:textSize="18sp"
+            android:fontFamily="@font/sf_display_light" />
+
+        <View
+            android:id="@+id/radioLight"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:background="@drawable/radio_unselected" />
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="4dp" />
+
+    <!-- System Default option -->
+    <LinearLayout
+        android:id="@+id/optionSystem"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/settings_option_bg"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_device"
+            app:tint="@color/settings_option_text"
+            android:layout_marginEnd="14dp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="System Default"
+            android:textColor="@color/settings_option_text"
+            android:textSize="18sp"
+            android:fontFamily="@font/sf_display_light" />
+
+        <View
+            android:id="@+id/radioSystem"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:background="@drawable/radio_unselected" />
+
+    </LinearLayout>
+
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/settings_dialog_stroke"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="12dp" />
+
+    <!-- Show Tutorial option -->
+    <LinearLayout
+        android:id="@+id/optionTutorial"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/settings_option_bg"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_info"
+            app:tint="@color/settings_option_text"
+            android:layout_marginEnd="14dp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Show Tutorial"
+            android:textColor="@color/settings_option_text"
+            android:textSize="18sp"
+            android:fontFamily="@font/sf_display_light" />
+
+    </LinearLayout>
+
+</LinearLayout>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Theme-aware colors (dark overrides) -->
+    <color name="bg_primary">#FF000000</color>
+    <color name="bar_background">#B3111111</color>
+    <color name="bar_text">#FFFFFFFF</color>
+    <color name="bar_icon_tint">#FFFFFFFF</color>
+    <color name="pill_background">#E6141414</color>
+    <color name="pill_text">#DDFFFFFF</color>
+    <color name="pill_divider">#15FFFFFF</color>
+    <color name="pill_subtitle">#99FFFFFF</color>
+    <color name="pill_address">#FFFFFFFF</color>
+    <color name="pill_time">#55FFFFFF</color>
+    <color name="map_card_bg">#FF1A1A1A</color>
+    <color name="map_offline_overlay">#CC1A1A1A</color>
+    <color name="map_offline_text">#BBFFFFFF</color>
+    <color name="shutter_ring_outer">#FFFFFFFF</color>
+    <color name="shutter_ring_gap">#FF222222</color>
+    <color name="shutter_inner">#FFFFFFFF</color>
+    <color name="thumbnail_bg">#FF444444</color>
+    <color name="photo_label">#FFFFD700</color>
+    <color name="settings_dialog_bg">#F0141414</color>
+    <color name="settings_dialog_stroke">#15FFFFFF</color>
+    <color name="settings_title">#FFFFFFFF</color>
+    <color name="settings_option_text">#DDFFFFFF</color>
+    <color name="settings_option_selected">#33FFFFFF</color>
+    <color name="settings_radio_stroke">#55FFFFFF</color>
+    <color name="settings_radio_fill">#FFFFFFFF</color>
+    <color name="crop_pill_bg">#E6141414</color>
+    <color name="crop_pill_text">#CCFFFFFF</color>
+    <color name="crop_icon_stroke">#FFFFFFFF</color>
+    <color name="crop_icon_tint">#FFFFFFFF</color>
+    <color name="crop_bg">#FF000000</color>
+    <color name="cooldown_pill_stroke">#44F44336</color>
+</resources>

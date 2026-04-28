@@ -1,62 +1,67 @@
-# GEOAI · WebGIS
+# GeoAI
 
-Civic dashboard for the GeoAI pavement-distress detection system. Renders
-classified road-damage assessments from Supabase on a Leaflet map with
-clustering, day/night detection, severity filtering, and a JARVIS-style
-detail card for each marker.
+End-to-end pavement-distress detection system. Citizens take photos of
+road damage on the **GeoAI mobile app**; the photos run through a
+two-stage AI pipeline (Qwen2.5-VL-7B fine-tuned on RDD2022 + GAPs V2);
+classified hotspots surface on the **GeoAI WebGIS** for civic
+authorities (BBMP).
 
-## Live demo
+This monorepo holds the two client-facing pieces of that system.
 
-Drop the folder onto [Netlify Drop](https://app.netlify.com/drop) — the
-site is fully static (no build step) and mobile-responsive out of the box.
+## Layout
 
-## Stack
-
-- **Map**: Leaflet 1.9 + MapTiler tiles (light, dark, voyager, satellite,
-  backdrop, toner)
-- **Database**: Supabase Postgres — public anon read on `photos` and the
-  `assessments` table (per the project's RLS policy)
-- **Search**: Nominatim (OpenStreetMap) for free geocoding
-- **No build step** — vanilla HTML/CSS/JS, all dependencies via CDN
-
-## Files
-
-| File | Purpose |
-|---|---|
-| `index.html` | Entry point — markup, layout, deferred CDN loads |
-| `app.js` | All client logic: data fetching, clustering, filters, cards |
-| `styles.css` | Liquid-glass design system, responsive media queries |
-| `fonts/rostex.outline.ttf` | Custom outline font for the GEO mark |
-
-## Features
-
-- 🗺️ Multiple basemap styles, with dark-chrome auto-applied for dark maps
-- 📍 Smart 14m clustering of overlapping markers
-- 🎯 Click-to-fly with radar pulse + JARVIS card connector
-- 🌅 Day/night classification (civil twilight) with dashed border for night
-- 🔍 Filters: top locations by frequency · severity (Less/Moderate/Red Alert) · time of day
-- 💾 Stale-while-revalidate cache (`localStorage`, 10-min TTL) — saves Supabase reads
-- 📱 Fully responsive — works on phones
-
-## Configuration
-
-Edit the top of `app.js`:
-
-```js
-const MAPTILER_KEY        = 'YOUR_MAPTILER_KEY';
-const SUPABASE_URL        = 'https://your-project.supabase.co';
-const SUPABASE_ANON_KEY   = 'YOUR_ANON_JWT';
+```
+.
+├── index.html / app.js / styles.css   ← WebGIS (this repo's root is the deployable site)
+├── fonts/                              ← Rostex Outline (custom brand font)
+├── mobile/                             ← Native Android capture app (Kotlin)
+│   ├── app/
+│   ├── gradle/
+│   └── README.md                       ← App-specific docs
+├── README.md                           ← (you are here)
+└── .gitignore
 ```
 
-The anon key is safe in the browser as long as Supabase RLS is configured.
-The MapTiler key should be locked down to your deployed origin in the
-MapTiler dashboard.
+The AI pipeline, FastAPI server, expert-review UI, and Supabase schema
+are not in this repo — they live in the team's main capstone repository
+on the GPU server.
 
-## Companion mobile app
+## WebGIS (root)
 
-The capture-side mobile app (RoadSide) lives in a separate Android Studio
-project. It writes to the same `photos` table; a Postgres trigger creates
-the matching `assessments` row that the AI worker picks up.
+Static civic dashboard. Drag the repo onto
+[Netlify Drop](https://app.netlify.com/drop) or connect the repo to
+Netlify / GitHub Pages — no build step.
+
+**Stack**: Leaflet 1.9 · MapTiler · Supabase Postgres · Nominatim ·
+vanilla HTML/CSS/JS (no framework, no bundler).
+
+**Features**: multi-style basemap, dark-chrome auto-flip, 14 m geographic
+clustering, JARVIS-style anchored detail cards, civil-twilight day/night
+detection with visual badge, cascading filters (top locations / severity /
+time-of-day), persistent filter pills, and a `localStorage`
+stale-while-revalidate cache that saves Supabase reads.
+
+Configuration sits at the top of `app.js` — the Supabase anon key + URL
+and the MapTiler key. The anon key is safe in the browser as long as RLS
+is configured; the MapTiler key should be locked to the deployed origin
+in the MapTiler dashboard.
+
+## Mobile (`mobile/`)
+
+Native Android (Kotlin) capture client. CameraX preview, pinch-zoom 1:1
+crop, flash toggle, live luminance metering, 10-second
+`requestLocationUpdates` cadence so photos taken while moving don't
+cluster at the launch coordinates. Uploads to Cloudinary (unsigned
+preset) and inserts a `photos` row into Supabase; the project's Postgres
+trigger picks it up.
+
+```bash
+cd mobile
+./gradlew assembleDebug      # debug APK
+./gradlew assembleRelease    # release APK (debug-signed for sideloading)
+```
+
+See [`mobile/README.md`](mobile/README.md) for full details.
 
 ## Authors
 

@@ -16,7 +16,7 @@ desktop.ini
 # Logs
 *.log
 
-# Flutter / Android (the roadside/ subproject if present)
+# Flutter / Android (the roadside/ Flutter subproject if present)
 roadside/.dart_tool/
 roadside/.flutter-plugins
 roadside/.flutter-plugins-dependencies
@@ -32,6 +32,20 @@ roadside/android/app/build/
 roadside/android/build/
 roadside/android/local.properties
 roadside/**/GeneratedPluginRegistrant.*
+
+# Native Android app under mobile/
+mobile/.gradle/
+mobile/.idea/
+mobile/local.properties
+mobile/**/build/
+mobile/.cxx/
+mobile/**/.cxx/
+mobile/**/captures/
+mobile/*.iml
+mobile/**/*.iml
+mobile/keystore.properties
+mobile/*.jks
+mobile/*.keystore
 
 # Node / build artifacts (in case anyone adds tooling later)
 node_modules/

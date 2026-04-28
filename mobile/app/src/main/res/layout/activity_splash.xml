@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/splashRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_primary">
+
+    <!-- Center: GEO AI -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center_horizontal">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="bottom">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="@font/rostex_outline"
+                android:includeFontPadding="false"
+                android:text="GEO"
+                android:textColor="@color/bar_text"
+                android:textSize="80sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginBottom="4dp"
+                android:fontFamily="@font/sf_display_bold"
+                android:includeFontPadding="false"
+                android:text="AI"
+                android:textColor="@color/bar_text"
+                android:textSize="40sp" />
+
+        </LinearLayout>
+
+        <!-- Loading bar -->
+        <FrameLayout
+            android:layout_width="200dp"
+            android:layout_height="2dp"
+            android:layout_marginTop="20dp">
+
+            <View
+                android:id="@+id/loadingBarTrack"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@color/pill_divider" />
+
+            <View
+                android:id="@+id/loadingBarFill"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:background="@color/bar_text" />
+
+        </FrameLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

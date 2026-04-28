@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/crop_bg">
+
+    <!-- Crop view (full screen) -->
+    <com.example.msc.CropImageView
+        android:id="@+id/cropImageView"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Floating pill: "Continue with this?" + undo/check buttons -->
+    <LinearLayout
+        android:id="@+id/cropPill"
+        android:layout_width="wrap_content"
+        android:layout_height="72dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/crop_pill_bg"
+        android:elevation="12dp"
+        android:paddingStart="28dp"
+        android:paddingEnd="12dp"
+        android:layout_marginBottom="48dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Continue with this?"
+            android:textColor="@color/crop_pill_text"
+            android:textSize="25sp"
+            android:fontFamily="@font/sf_display_light"
+            android:layout_marginEnd="20dp" />
+
+        <!-- Undo button -->
+        <ImageButton
+            android:id="@+id/btnCancel"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/crop_icon_bg"
+            android:src="@drawable/ic_undo"
+            android:scaleType="centerInside"
+            android:padding="10dp"
+            app:tint="@color/crop_icon_tint"
+            android:contentDescription="Retake"
+            android:layout_marginEnd="10dp" />
+
+        <!-- Confirm button -->
+        <ImageButton
+            android:id="@+id/btnConfirm"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/crop_icon_bg"
+            android:src="@drawable/ic_check"
+            android:scaleType="centerInside"
+            android:padding="10dp"
+            app:tint="@color/crop_icon_tint"
+            android:contentDescription="Confirm" />
+
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

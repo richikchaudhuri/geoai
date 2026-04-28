@@ -1,0 +1,32 @@
+# Android / Gradle
+*.iml
+.gradle/
+local.properties
+.cxx/
+.externalNativeBuild/
+
+# IDE — IntelliJ / Android Studio
+.idea/
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+.DS_Store
+
+# Build artifacts (any module)
+**/build/
+/captures/
+/app/release/
+/app/debug/
+
+# Generated keystores / signing config (keep these private)
+keystore.properties
+*.jks
+*.keystore
+release.keystore
+
+# OS
+Thumbs.db
+desktop.ini
