@@ -11,7 +11,10 @@ android {
 
     defaultConfig {
         applicationId = "com.example.msc"
-        minSdk = 34
+        // Android 8.0 (Oreo, API 26) — covers ~94% of active devices.
+        // Was 34 (Android 14+) which excluded most users. CameraX,
+        // FusedLocation, and OSMDroid all support API 26+.
+        minSdk = 26
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"

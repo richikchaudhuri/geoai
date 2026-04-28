@@ -274,11 +274,19 @@ class CropImageView @JvmOverloads constructor(
                     MotionEvent.ACTION_POINTER_INDEX_SHIFT
                 val pointerId = event.getPointerId(pointerIndex)
                 if (pointerId == activePointerId) {
-                    val newIdx = if (pointerIndex == 0) 1 else 0
-                    if (newIdx < event.pointerCount) {
+                    // Find ANY remaining pointer that isn't the one being
+                    // lifted. Old code assumed the survivor was always the
+                    // opposite finger, which broke for 3+ fingers.
+                    var newIdx = -1
+                    for (i in 0 until event.pointerCount) {
+                        if (i != pointerIndex) { newIdx = i; break }
+                    }
+                    if (newIdx >= 0) {
                         lastTouchX = event.getX(newIdx)
                         lastTouchY = event.getY(newIdx)
                         activePointerId = event.getPointerId(newIdx)
+                    } else {
+                        activePointerId = INVALID_POINTER_ID
                     }
                 }
             }
@@ -325,7 +333,10 @@ class CropImageView @JvmOverloads constructor(
             minOf(bmp.width - srcLeft, bmp.height - srcTop)
         )
 
-        if (srcSize <= 0) return null
+        // Guard against degenerate crops (e.g., heavy zoom + extreme pan
+        // could otherwise return a 1×1 bitmap that's useless to the AI
+        // pipeline). 64px is the smallest size we'll allow.
+        if (srcSize < 64) return null
         return Bitmap.createBitmap(bmp, srcLeft, srcTop, srcSize, srcSize)
     }
 

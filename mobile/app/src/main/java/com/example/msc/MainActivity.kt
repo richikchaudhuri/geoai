@@ -181,7 +181,11 @@ class MainActivity : AppCompatActivity() {
         binding.settingsButton.setOnClickListener { showSettingsDialog() }
         setupFlashButton()
 
-        window.setBackgroundBlurRadius(40)
+        // setBackgroundBlurRadius requires API 31+ (Android 12). Older
+        // devices simply skip the blur — non-critical aesthetic.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            window.setBackgroundBlurRadius(40)
+        }
 
         cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
 
@@ -196,6 +200,13 @@ class MainActivity : AppCompatActivity() {
         }
         // Always kick off a fresh background fetch (geocoding included)
         fetchLocationInBackground()
+
+        // Restore shutter cooldown so closing the app doesn't reset the
+        // 6s rate limit. Only honour timestamps that are still in the future.
+        val savedCooldown = prefs2.getLong("shutter_cooldown_end", 0L)
+        if (savedCooldown > System.currentTimeMillis()) {
+            shutterCooldownEnd = savedCooldown
+        }
     }
 
     // ── Location Panel ──
@@ -421,6 +432,9 @@ class MainActivity : AppCompatActivity() {
         // Take the photo and start cooldown
         takePhoto()
         shutterCooldownEnd = System.currentTimeMillis() + 6000
+        // Persist so user can't reset the cooldown by killing the app
+        getSharedPreferences("msc_prefs", MODE_PRIVATE).edit()
+            .putLong("shutter_cooldown_end", shutterCooldownEnd).apply()
     }
 
     private fun showCooldownPill(remainingMs: Long) {
@@ -545,21 +559,33 @@ class MainActivity : AppCompatActivity() {
                     binding.locationCoordinates.text =
                         String.format(Locale.US, "%.6f, %.6f", lat, lng)
 
-                    // Reverse geocode
-                    try {
-                        val geocoder = Geocoder(this, Locale.getDefault())
-                        val addresses = geocoder.getFromLocation(lat, lng, 1)
-                        if (!addresses.isNullOrEmpty()) {
-                            val addr = addresses[0].getAddressLine(0)
-                                ?: "${addresses[0].locality}, ${addresses[0].countryName}"
-                            binding.locationAddress.text = addr
-                            lastKnownAddress = addr
-                        } else {
-                            binding.locationAddress.text = "Address not found"
+                    // Reverse geocode off the main thread — the platform
+                    // geocoder can block for several seconds and trigger an
+                    // ANR if hit on UI thread.
+                    binding.locationAddress.text = "Resolving address…"
+                    lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        var resolved: String? = null
+                        var unavailable = false
+                        try {
+                            val addresses = Geocoder(this@MainActivity, Locale.getDefault())
+                                .getFromLocation(lat, lng, 1)
+                            if (!addresses.isNullOrEmpty()) {
+                                resolved = addresses[0].getAddressLine(0)
+                                    ?: "${addresses[0].locality}, ${addresses[0].countryName}"
+                            }
+                        } catch (e: Exception) {
+                            unavailable = true
+                            Log.w(TAG, "Geocoder failed", e)
                         }
-                    } catch (e: Exception) {
-                        binding.locationAddress.text = "Geocoder unavailable"
-                        Log.e(TAG, "Geocoder failed", e)
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (resolved != null) {
+                                binding.locationAddress.text = resolved
+                                lastKnownAddress = resolved
+                            } else {
+                                binding.locationAddress.text =
+                                    if (unavailable) "Geocoder unavailable" else "Address not found"
+                            }
+                        }
                     }
 
                     // Set map to location
@@ -600,11 +626,19 @@ class MainActivity : AppCompatActivity() {
         ) return
 
         val fusedClient = LocationServices.getFusedLocationProviderClient(this)
-        fusedClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
-            .addOnSuccessListener { location ->
-                if (location == null) return@addOnSuccessListener
-                onLocationUpdate(location.latitude, location.longitude)
-            }
+        try {
+            fusedClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
+                .addOnSuccessListener { location ->
+                    if (location == null) return@addOnSuccessListener
+                    onLocationUpdate(location.latitude, location.longitude)
+                }
+                .addOnFailureListener { e ->
+                    Log.w(TAG, "Background location fetch failed", e)
+                }
+        } catch (e: SecurityException) {
+            // User revoked permission between the check above and the call
+            Log.w(TAG, "Location permission revoked mid-call", e)
+        }
     }
 
     // ── Luminance / low-light hint ──
@@ -856,7 +890,9 @@ class MainActivity : AppCompatActivity() {
                             refreshLocationPanelIfVisible()
                         }
                     }
-                } catch (_: Exception) { /* keep last known address */ }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Reverse geocode failed; keeping last known address", e)
+                }
             }
         }
     }
@@ -1080,6 +1116,25 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         binding.locationMapView.onPause()
         stopLocationUpdates()
+        // Dismiss transient dialogs so we don't leak them across config
+        // changes. They'll be re-opened on demand.
+        settingsDialog?.dismiss()
+        galleryDialog?.dismiss()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Belt-and-braces cleanup of every long-lived async resource so
+        // nothing keeps the activity alive after teardown.
+        idleHandler.removeCallbacks(idleDismissRunnable)
+        flashPillDismissRunnable?.let { idleHandler.removeCallbacks(it) }
+        cooldownTimer?.cancel(); cooldownTimer = null
+        breathingAnimator?.cancel(); breathingAnimator = null
+        stopLocationUpdates()
+        locationCallback = null
+        fusedLocationClient = null
+        settingsDialog?.dismiss(); settingsDialog = null
+        galleryDialog?.dismiss(); galleryDialog = null
     }
 
     // ── Settings Dialog ──
