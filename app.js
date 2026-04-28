@@ -455,13 +455,6 @@ searchInput.addEventListener('input', (e) => {
   searchTimer = setTimeout(() => runSearch(q), 300);
 });
 
-document.addEventListener('click', (e) => {
-  if (!searchWrap.contains(e.target)) {
-    searchWrap.classList.remove('hint', 'active');
-    searchResults.classList.remove('open');
-  }
-});
-
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     collapseSearch({ clear: true });
@@ -494,7 +487,14 @@ settingsOptions.addEventListener('click', (e) => {
   setMapStyle(btn.dataset.style);
 });
 
+// Single document click handler — closes search and settings when clicking
+// outside their respective wraps. Merged from two separate handlers that
+// could race with each other.
 document.addEventListener('click', (e) => {
+  if (!searchWrap.contains(e.target)) {
+    searchWrap.classList.remove('hint', 'active');
+    searchResults.classList.remove('open');
+  }
   if (!settingsWrap.contains(e.target)) {
     settingsWrap.classList.remove('open');
   }
@@ -1005,6 +1005,14 @@ function formatDate(iso) {
   });
 }
 
+// Safe lat/lng formatter — handles null/undefined/NaN without throwing
+function fmtCoords(row, decimals = 5) {
+  const lat = (typeof row.latitude === 'number' && Number.isFinite(row.latitude)) ? row.latitude : null;
+  const lng = (typeof row.longitude === 'number' && Number.isFinite(row.longitude)) ? row.longitude : null;
+  if (lat == null || lng == null) return '—';
+  return `${lat.toFixed(decimals)}, ${lng.toFixed(decimals)}`;
+}
+
 function buildCardElement() {
   const card = document.createElement('aside');
   card.className = 'detail-panel loading clickable';
@@ -1084,7 +1092,7 @@ function buildExpandedHTML(row) {
         ${conf ? `<span class="detail-confidence">${Math.round(conf * 100)}% confidence</span>` : ''}
       </div>
       <div class="detail-tags">${tagChips}</div>
-      <h2 class="expanded-title">${escapeHTML(row.address || `${row.latitude?.toFixed?.(5) ?? '—'}, ${row.longitude?.toFixed?.(5) ?? '—'}`)}</h2>
+      <h2 class="expanded-title">${escapeHTML(row.address || `${fmtCoords(row)}`)}</h2>
       ${row.description ? `<p class="expanded-description">${escapeHTML(row.description)}</p>` : ''}
   `;
 
@@ -1131,7 +1139,7 @@ function buildExpandedHTML(row) {
   if (row.processed_at && row.processed_at !== row.created_at) {
     metaRows.push(['AI processed', formatDate(row.processed_at)]);
   }
-  metaRows.push(['Coordinates', `${row.latitude?.toFixed?.(5) ?? '—'}, ${row.longitude?.toFixed?.(5) ?? '—'}`]);
+  metaRows.push(['Coordinates', `${fmtCoords(row)}`]);
   if (row.image_width && row.image_height) metaRows.push(['Image', `${row.image_width} × ${row.image_height}`]);
   if (row.photo_id != null) metaRows.push(['Photo ID', row.photo_id]);
   if (row.road_segment_id) metaRows.push(['Road segment', row.road_segment_id]);
@@ -1149,7 +1157,10 @@ function buildExpandedHTML(row) {
 function showExpandedCard(row) {
   // Fade out existing cards
   cardConnectors.classList.remove('active');
-  for (const { el } of activeCards) el.classList.remove('open');
+  for (const { el } of activeCards) {
+    el.classList.remove('open');
+    try { cardResizeObserver.unobserve(el); } catch (_) {}
+  }
   const closing = activeCards;
   activeCards = [];
 
@@ -1278,7 +1289,7 @@ function populateCard(card, row) {
   }
 
   card.querySelector('.detail-address').textContent =
-    row.address || `${row.latitude.toFixed(5)}, ${row.longitude.toFixed(5)}`;
+    row.address || fmtCoords(row);
 
   const desc = card.querySelector('.detail-description');
   desc.textContent = row.description || '';
@@ -1287,8 +1298,8 @@ function populateCard(card, row) {
   const meta = card.querySelector('.detail-meta');
   meta.innerHTML = '';
   const metaRows = [
-    ['Recorded', formatDate(row.processed_at || row.created_at)],
-    ['Coordinates', `${row.latitude.toFixed(5)}, ${row.longitude.toFixed(5)}`],
+    ['Captured', formatDate(row.created_at || row.processed_at)],
+    ['Coordinates', fmtCoords(row)],
   ];
   if (row.expert_reviewed) metaRows.push(['Review', 'Verified by expert']);
   for (const [k, v] of metaRows) {
@@ -1453,7 +1464,10 @@ function buildListElement(rows) {
 
 function showListView(rows) {
   cardConnectors.classList.remove('active');
-  for (const { el } of activeCards) el.classList.remove('open');
+  for (const { el } of activeCards) {
+    el.classList.remove('open');
+    try { cardResizeObserver.unobserve(el); } catch (_) {}
+  }
   const closing = activeCards;
   activeCards = [];
 
@@ -1485,9 +1499,14 @@ function hideCards() {
   selectedLatLng = null;
   for (const { el } of closing) {
     el.classList.remove('open');
+    // Stop watching this card's size — without this, removed cards keep
+    // firing the observer callback and trigger phantom positionAllCards calls.
+    try { cardResizeObserver.unobserve(el); } catch (_) {}
   }
   setTimeout(() => {
     for (const { el } of closing) el.remove();
+    // Clear connector lines AND any in-flight radar rings so old animations
+    // don't carry over to the next selection.
     while (cardConnectors.firstChild) cardConnectors.removeChild(cardConnectors.firstChild);
   }, 600);
 }
@@ -1676,7 +1695,7 @@ function showFilterIssues() {
   const byAddress = new Map();
   for (const row of allMergedRows) {
     if (row.latitude == null || row.longitude == null) continue;
-    const addr = row.address || `${row.latitude.toFixed(4)}, ${row.longitude.toFixed(4)}`;
+    const addr = row.address || fmtCoords(row, 4);
     if (!byAddress.has(addr)) {
       byAddress.set(addr, { count: 0, rows: [], lat: row.latitude, lng: row.longitude });
     }
@@ -1715,6 +1734,11 @@ function showFilterSeverity() {
   filterSeverity.hidden = false;
   filterTime.hidden = true;
   filterLocations.hidden = true;
+  // Mirror the active filter state onto the buttons so the user sees what's
+  // currently locked in when re-opening the panel.
+  filterSeverity.querySelectorAll('.filter-option').forEach(b => {
+    b.classList.toggle('active', b.dataset.severity === activeSeverityFilter);
+  });
 }
 
 function showFilterTime() {
@@ -1723,6 +1747,9 @@ function showFilterTime() {
   filterSeverity.hidden = true;
   filterTime.hidden = false;
   filterLocations.hidden = true;
+  filterTime.querySelectorAll('.filter-option').forEach(b => {
+    b.classList.toggle('active', b.dataset.time === activeTimeFilter);
+  });
 }
 
 function setSeverityActive(level) {
@@ -1771,7 +1798,7 @@ function showSeverityLocations(level) {
     const sevColor = SEVERITY_COLOR[sev] || UNKNOWN_COLOR;
     const types = effectiveTypes(row);
     const primary = pickPrimaryType(types);
-    const addr = row.address || `${row.latitude.toFixed(4)}, ${row.longitude.toFixed(4)}`;
+    const addr = row.address || fmtCoords(row, 4);
 
     const item = document.createElement('button');
     item.className = 'filter-list-item';

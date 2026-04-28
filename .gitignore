@@ -3,6 +3,10 @@
 Thumbs.db
 desktop.ini
 
+# R / RStudio history
+.Rhistory
+.RData
+
 # Editors
 .vscode/
 .idea/
