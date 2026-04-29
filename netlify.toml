@@ -10,10 +10,42 @@
   to = "/.netlify/functions/assessments"
   status = 200
 
-# Cache headers for static assets (Netlify defaults are usually good, but
-# we lock in immutable caching for fonts so users don't re-download Rostex
-# every page load).
+# ── Strict security headers on every response ──────────────────────────────
+# CSP locks the JS execution surface to known-good hosts. Anything else
+# (a malicious inline <script>, a 3rd-party CDN injected by an attacker,
+# an iframe trying to embed us) gets blocked by the browser.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = """
+      default-src 'self';
+      script-src 'self' 'sha256-Yv2c+QSTWa5pzB8dyhvhnPJjs1FVqjnEWqJl9VjBXVk=' https://unpkg.com https://cdn.jsdelivr.net;
+      style-src  'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com;
+      img-src    'self' data: blob: https://*.cartocdn.com https://api.maptiler.com https://*.tile.openstreetmap.org https://res.cloudinary.com https://erepublic.brightspotcdn.com https://*.supabase.co;
+      font-src   'self' https://fonts.gstatic.com data:;
+      connect-src 'self' https://*.supabase.co https://api.maptiler.com https://*.cartocdn.com https://*.tile.openstreetmap.org https://nominatim.openstreetmap.org https://*.upstash.io;
+      frame-ancestors 'none';
+      base-uri   'self';
+      object-src 'none';
+      form-action 'self';
+      upgrade-insecure-requests;
+    """
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options    = "nosniff"
+    X-Frame-Options           = "DENY"
+    Referrer-Policy           = "strict-origin-when-cross-origin"
+    Permissions-Policy        = "camera=(), microphone=(), geolocation=(self), payment=(), usb=(), interest-cohort=()"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+
+# Long-cache immutable static assets so users don't re-download Rostex
+# every page load.
 [[headers]]
   for = "/fonts/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/favicon.svg"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
