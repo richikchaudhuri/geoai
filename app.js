@@ -512,7 +512,10 @@ let allMergedRows = [];
 
 /* ---------- Smart caching (saves Supabase reads + Nominatim hits) ---------- */
 
-const CACHE_VERSION = 2;
+// Bumped to v3 to bust any locally-cached data that was stored before the
+// day/night filter fix, so users get a fresh fetch and the new logic
+// runs against current data.
+const CACHE_VERSION = 3;
 const CACHE_KEY = `geoai:dataCache:v${CACHE_VERSION}`;
 const CACHE_TTL_MS = 10 * 60 * 1000;          // 10 min: serve from cache, no network
 const CACHE_HARD_LIMIT_MS = 24 * 60 * 60 * 1000; // 24 h: still usable but always revalidate
@@ -898,11 +901,32 @@ function renderAssessments(rows) {
   }
   // Apply persistent day/night filter
   if (activeTimeFilter) {
+    let dayCount = 0, nightCount = 0, unknownCount = 0;
     filtered = filtered.filter(r => {
       const day = rowIsDaytime(r);
+      if (day === true) dayCount++;
+      else if (day === false) nightCount++;
+      else unknownCount++;
       if (day == null) return activeTimeFilter === 'day'; // unknowns default to day bucket
       return activeTimeFilter === 'day' ? day : !day;
     });
+    console.log(
+      `[GeoAI] time filter='${activeTimeFilter}' · ` +
+      `${dayCount} day, ${nightCount} night, ${unknownCount} unknown · ` +
+      `kept ${filtered.length}`
+    );
+    // Sanity check: log a sample of what slipped through
+    if (filtered.length && activeTimeFilter === 'night') {
+      const sample = filtered.slice(0, 3).map(r => ({
+        id: r.id,
+        created_at: r.created_at,
+        processed_at: r.processed_at,
+        lat: r.latitude,
+        lng: r.longitude,
+        rowIsDaytime: rowIsDaytime(r),
+      }));
+      console.log('[GeoAI] sample night-filtered rows:', sample);
+    }
   }
 
   const groups = clusterRows(filtered);
