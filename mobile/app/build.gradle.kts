@@ -24,12 +24,7 @@ android {
 
     buildTypes {
         release {
-            // Strip debug info, obfuscate Kotlin/Java class & method names,
-            // and shrink unused code from the APK. Makes reverse-engineering
-            // the AI-pipeline endpoints, request shapes, and credentials
-            // dramatically more painful.
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -38,12 +33,6 @@ android {
             // installable when sideloaded. Replace with a real release
             // keystore before publishing to the Play Store.
             signingConfig = signingConfigs.getByName("debug")
-        }
-        debug {
-            // Debug builds are explicitly distinguishable so we can detect
-            // tampered "release-ish" debug APKs in logs.
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-DEBUG"
         }
     }
     compileOptions {

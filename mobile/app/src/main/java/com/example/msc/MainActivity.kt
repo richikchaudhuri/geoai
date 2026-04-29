@@ -429,58 +429,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Defense-in-depth: hourly hard cap on top of the 6s cooldown.
-        // Stops a tampered build from spamming Cloudinary/Supabase even
-        // if the cooldown is bypassed.
-        if (!checkHourlyUploadCap()) {
-            showCooldownPill(60_000L)  // visually communicates "wait"
-            shakeCooldownPill()
-            Toast.makeText(
-                this,
-                "Hourly limit reached (${HOURLY_UPLOAD_CAP} captures). Try again later.",
-                Toast.LENGTH_LONG
-            ).show()
-            return
-        }
-
         // Take the photo and start cooldown
         takePhoto()
         shutterCooldownEnd = System.currentTimeMillis() + 6000
         // Persist so user can't reset the cooldown by killing the app
         getSharedPreferences("msc_prefs", MODE_PRIVATE).edit()
             .putLong("shutter_cooldown_end", shutterCooldownEnd).apply()
-        registerHourlyUpload()
-    }
-
-    /**
-     * Sliding-window rate limit — counts uploads in the last hour and
-     * rejects past the cap. Survives app restarts via SharedPreferences.
-     * Defense in depth on top of the 6s cooldown; a tampered build that
-     * removes the cooldown still hits this wall.
-     */
-    private val HOURLY_UPLOAD_CAP = 60
-    private val HOURLY_WINDOW_MS = 60L * 60L * 1000L
-
-    private fun checkHourlyUploadCap(): Boolean {
-        val now = System.currentTimeMillis()
-        val prefs = getSharedPreferences("msc_prefs", MODE_PRIVATE)
-        val raw = prefs.getString("upload_history", "") ?: ""
-        val recent = raw.split(',')
-            .mapNotNull { it.trim().toLongOrNull() }
-            .filter { now - it < HOURLY_WINDOW_MS }
-        return recent.size < HOURLY_UPLOAD_CAP
-    }
-
-    private fun registerHourlyUpload() {
-        val now = System.currentTimeMillis()
-        val prefs = getSharedPreferences("msc_prefs", MODE_PRIVATE)
-        val raw = prefs.getString("upload_history", "") ?: ""
-        val recent = raw.split(',')
-            .mapNotNull { it.trim().toLongOrNull() }
-            .filter { now - it < HOURLY_WINDOW_MS }
-            .toMutableList()
-        recent.add(now)
-        prefs.edit().putString("upload_history", recent.joinToString(",")).apply()
     }
 
     private fun showCooldownPill(remainingMs: Long) {
