@@ -96,18 +96,6 @@ Vanilla HTML/CSS/JS — **no build step**. Drop the repo onto Netlify or push to
 
 `Leaflet 1.9` · `MapTiler` · `Supabase JS v2` · `Nominatim` · vanilla ES2020
 
-### Configuration
-
-Edit the top of [`app.js`](app.js):
-
-```js
-const MAPTILER_KEY        = 'YOUR_MAPTILER_KEY';
-const SUPABASE_URL        = 'https://your-project.supabase.co';
-const SUPABASE_ANON_KEY   = 'YOUR_ANON_JWT';
-```
-
-The anon key is safe in the browser as long as Supabase RLS is configured. The MapTiler key should be locked to your deployed origin in the MapTiler dashboard.
-
 ---
 
 ## 📱 Mobile App
