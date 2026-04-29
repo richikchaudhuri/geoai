@@ -13,6 +13,10 @@
 
 [**Live Demo**](https://gisgeoai.netlify.app) · [**Web Dashboard**](#-web-dashboard) · [**Mobile App**](#-mobile-app) · [**Architecture**](#-architecture)
 
+<br/>
+
+![GeoAI WebGIS — overview](docs/screenshots/01-overview.png)
+
 </div>
 
 ---
@@ -68,6 +72,27 @@ Vanilla HTML/CSS/JS — **no build step**. Drop the repo onto Netlify or push to
 - 🔍 **Cascading filters** — top locations by frequency, severity (Less / Moderate / Red Alert), time of day. Active filters drop pills next to the brand.
 - 💾 **Stale-while-revalidate `localStorage` cache** with 10-min TTL — saves Supabase reads, page loads from cache instantly
 - 📱 **Fully responsive** — mobile breakpoints throughout, touch-friendly Leaflet, viewport-aware card placement
+
+### What it looks like
+
+<table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/02-filters-top-locations.png"><img alt="Filters — Top Locations" src="docs/screenshots/02-filters-top-locations.png"/></a><br/><sub><b>Filters → Top Locations.</b> Cascading panels show the highest-frequency capture sites with counts.</sub></td>
+    <td width="50%"><a href="docs/screenshots/03-filters-severity.png"><img alt="Filters — Severity" src="docs/screenshots/03-filters-severity.png"/></a><br/><sub><b>Filters → Severity.</b> Less / Moderate / Red Alert / Search-all options.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/04-severity-moderate-active.png"><img alt="Moderate severity active" src="docs/screenshots/04-severity-moderate-active.png"/></a><br/><sub><b>Severity filter locked in.</b> Pill next to the brand shows what's active; map shows only matching markers.</sub></td>
+    <td width="50%"><a href="docs/screenshots/05-detail-card.png"><img alt="Detail card on marker click" src="docs/screenshots/05-detail-card.png"/></a><br/><sub><b>JARVIS-style detail card.</b> Click any marker → flyTo → radar pulse → loading spinner → reveal.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/06-about-card.png"><img alt="About card" src="docs/screenshots/06-about-card.png"/></a><br/><sub><b>About page.</b> Project overview, AI pipeline, severity scale, tech stack, roadmap, authors.</sub></td>
+    <td width="50%"><a href="docs/screenshots/07-settings-map-styles.png"><img alt="Map style picker" src="docs/screenshots/07-settings-map-styles.png"/></a><br/><sub><b>6 basemap styles.</b> Light, Dark, Voyager, Satellite, Minimal, Toner — each remembered per-user.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/08-dark-satellite.png"><img alt="Satellite dark chrome" src="docs/screenshots/08-dark-satellite.png"/></a><br/><sub><b>Auto dark chrome on dark maps.</b> Pills, text, icons all flip to white when the basemap is dark.</sub></td>
+    <td width="50%"><a href="docs/screenshots/09-mobile.png"><img alt="Mobile view" src="docs/screenshots/09-mobile.png"/></a><br/><sub><b>Mobile-responsive.</b> All cards reflow, the toolbar collapses, severity pill docks to bottom.</sub></td>
+  </tr>
+</table>
 
 ### Tech
 
