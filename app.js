@@ -794,7 +794,7 @@ function rowTypeRank(row) {
 // Grid-based clustering at ~5 metre cell size.
 // 1° latitude  ≈ 111 320 m (constant)
 // 1° longitude ≈ 111 320 × cos(lat) m  (depends on latitude)
-const CLUSTER_RADIUS_M = 14;
+const CLUSTER_RADIUS_M = 0; // 0 = no clustering, every dot stands alone
 
 function clusterRows(rows) {
   // Clustering disabled — every row is its own marker
@@ -962,14 +962,30 @@ function addSingleMarker(row) {
   const fill = colorForTypes(types);
   const radius = SEVERITY_RADIUS[severity] || 5;
   const day = rowIsDaytime(row);
+
+  // Night captures get an unmistakable dark halo behind the colored dot.
+  // Severity colour stays the same so the user can still read severity at a
+  // glance, but the halo + dashed inner border makes day/night unmissable.
+  if (day === false) {
+    L.circleMarker([row.latitude, row.longitude], {
+      radius: radius + 6,
+      color: '#0F172A',
+      weight: 1.5,
+      fillColor: '#0F172A',
+      fillOpacity: 0.28,
+      dashArray: '4 3',
+      interactive: false,  // click passes through to the real marker
+    }).addTo(assessmentLayer);
+  }
+
   const m = L.circleMarker([row.latitude, row.longitude], {
     radius,
     color: '#FFFFFF',
     weight: 2.5,
     fillColor: fill,
     fillOpacity: 0.9,
-    // Night captures: dashed white border. Day captures: solid (default).
-    dashArray: day === false ? '3 3' : null,
+    // Night captures: longer-dashed white border. Day captures: solid.
+    dashArray: day === false ? '5 3' : null,
   });
   m.on('click', () => {
     if (isSameLocation(selectedLatLng, [row.latitude, row.longitude])) return;
@@ -993,10 +1009,28 @@ function addClusterMarker(group) {
     }
   }
 
+  // If every member of this cluster is a night capture, give the cluster
+  // the same dark halo as individual night markers so the visual cue
+  // carries through clustering.
+  const allNight = group.every(r => rowIsDaytime(r) === false);
+  if (allNight) {
+    const haloRadius = Math.min(28, 18 + group.length);
+    L.circleMarker([lat, lng], {
+      radius: haloRadius,
+      color: '#0F172A',
+      weight: 1.5,
+      fillColor: '#0F172A',
+      fillOpacity: 0.28,
+      dashArray: '4 3',
+      interactive: false,
+    }).addTo(assessmentLayer);
+  }
+
   const size = Math.min(48, 28 + group.length * 2);
+  const cls = allNight ? 'cluster-marker night' : 'cluster-marker';
   const icon = L.divIcon({
     className: 'cluster-marker-wrapper',
-    html: `<div class="cluster-marker" style="background:${bestColor}">${group.length}</div>`,
+    html: `<div class="${cls}" style="background:${bestColor}">${group.length}</div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
