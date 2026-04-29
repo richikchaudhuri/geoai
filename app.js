@@ -794,7 +794,9 @@ function rowTypeRank(row) {
 // Grid-based clustering at ~5 metre cell size.
 // 1° latitude  ≈ 111 320 m (constant)
 // 1° longitude ≈ 111 320 × cos(lat) m  (depends on latitude)
-const CLUSTER_RADIUS_M = 0; // 0 = no clustering, every dot stands alone
+// Cluster only photos taken from essentially the same spot (handles GPS
+// jitter ~3m, doesn't merge distinct nearby damages).
+const CLUSTER_RADIUS_M = 3;
 
 function clusterRows(rows) {
   // Clustering disabled — every row is its own marker
