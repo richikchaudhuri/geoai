@@ -2032,3 +2032,61 @@ body.chrome-dark .detail-photo-wrap { background: rgba(255, 255, 255, 0.06); }
   .detail-photo-wrap { width: 100px; border-radius: 18px 0 0 18px; }
   .detail-body { padding: 12px 14px; padding-right: 44px; }
 }
+
+/* ---------- Compact desktop (≤1440px — 14" laptops, narrow windows) ---------- */
+/* Scale down the chrome so the topbar pill, the toolbar pill, the about card,
+   and the filter cascade all fit without colliding on smaller screens. */
+
+@media (min-width: 821px) and (max-width: 1440px) {
+  .topbar { top: 22px; left: 24px; gap: 14px; padding: 7px 10px 7px 18px; }
+  .brand-geo { font-size: 54px; -webkit-text-stroke-width: 1.3px; }
+  .brand-ai { font-size: 24px; }
+
+  .nav-pill { padding: 6px; }
+  .nav-item { height: 42px; width: 50px; font-size: 15px; }
+  .nav-item.active { width: 110px; }
+  .nav-item.active .nav-label { max-width: 90px; margin-left: 7px; }
+  .nav-icon { width: 20px; height: 20px; }
+
+  .toolbar { top: 22px; right: 24px; gap: 8px; padding: 6px; }
+  .search-wrap { width: 56px; height: 56px; }
+  .search-wrap.hint { width: 260px; }
+  .search-wrap.active,
+  .search-wrap.has-value { width: 460px; }
+  #searchInput { right: 56px; font-size: 15px; padding: 0 12px 0 26px; }
+  .search-icon-btn { width: 56px; height: 56px; }
+  .search-icon-btn svg { width: 22px; height: 22px; }
+  .settings-wrap { width: 56px; height: 56px; }
+  .settings-icon-btn svg { width: 22px; height: 22px; }
+  .settings-panel { width: 220px; }
+
+  .severity-pill {
+    top: 24px;
+    padding: 8px 6px 8px 14px;
+    font-size: 13px;
+  }
+  .severity-pill-close { width: 26px; height: 26px; }
+
+  .filter-stack { top: 116px; left: 24px; gap: 12px; }
+  .filter-card { width: 260px; padding: 14px; max-height: 380px; }
+  .filter-card[hidden] { display: none !important; }
+  .filter-header { font-size: 12px; padding: 4px 12px 10px; }
+  .filter-option { padding: 11px 14px; font-size: 14px; gap: 12px; }
+  .filter-option > svg { width: 20px; height: 20px; }
+  .filter-list-item { padding: 10px 12px; font-size: 13px; }
+
+  .about-stack { top: 116px; left: 24px; }
+  .about-card { width: 460px; padding: 24px 28px 26px; }
+  .about-brand .brand-geo { font-size: 50px; -webkit-text-stroke-width: 1.2px; }
+  .about-brand .brand-ai { font-size: 22px; }
+  .about-text { font-size: 14px; }
+}
+
+/* Even tighter (≤1280px — common 14" laptops at 1280×720 / 1366×768 logical) */
+@media (min-width: 821px) and (max-width: 1280px) {
+  .search-wrap.active,
+  .search-wrap.has-value { width: 380px; }
+  .filter-card { width: 240px; max-height: 340px; }
+  .about-card { width: 420px; }
+  .filter-stack { gap: 10px; }
+}
