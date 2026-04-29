@@ -594,6 +594,37 @@ function effectiveConfidence(row) {
   return row.stage1_confidence || 0;
 }
 
+/**
+ * Try the Netlify Function endpoint that proxies Supabase via Upstash
+ * Redis. Returns { ok, body, cacheState, responseMs } on success or
+ * { ok: false } on any failure (function not deployed, network error,
+ * non-2xx, etc.). Caller falls back to direct Supabase.
+ */
+async function tryNetlifyFunction() {
+  // Skip the function call when running from file:// or a localhost
+  // dev server — Netlify functions only exist on the deployed site.
+  // This means local-dev still works via direct Supabase.
+  const onNetlify = location.protocol === 'https:' ||
+                    /\.netlify\.app$/.test(location.hostname);
+  if (!onNetlify) return { ok: false };
+
+  try {
+    const res = await fetch('/.netlify/functions/assessments', {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return { ok: false };
+    const body = await res.json();
+    return {
+      ok: true,
+      body,
+      cacheState: res.headers.get('X-Cache') || 'unknown',
+      responseMs: res.headers.get('X-Response-Ms') || '?',
+    };
+  } catch (_) {
+    return { ok: false };
+  }
+}
+
 async function loadAssessments() {
   // 1) Try cache first — this is what saves your bills
   const cached = Cache.read();
@@ -631,30 +662,43 @@ async function loadAssessments() {
   }
 
   try {
-    const [photosRes, assessRes] = await Promise.all([
-      sb.from('photos')
-        .select('id, latitude, longitude, address, image_url, created_at')
-        .order('created_at', { ascending: false })
-        .limit(10000),
-      sb.from('assessments')
-        .select(`
-          id, photo_id, latitude, longitude, address, image_url, status,
-          distress_types, severity, stage2_confidence, stage1_confidence,
-          description, processed_at, created_at, expert_reviewed,
-          expert_corrected_types, expert_corrected_severity
-        `)
-        .order('created_at', { ascending: false })
-        .limit(10000),
-    ]);
+    let photos = [];
+    let assessments = [];
+    let source = 'supabase-direct';
 
-    if (photosRes.error) console.error('photos query error:', photosRes.error);
-    if (assessRes.error) console.error('assessments query error:', assessRes.error);
-    if (photosRes.error && assessRes.error) throw photosRes.error;
+    // 1) Try the Netlify Function (Redis-backed). One shared cache across
+    //    all visitors, so most page loads cost zero Supabase reads.
+    const fnResp = await tryNetlifyFunction();
+    if (fnResp.ok) {
+      photos = fnResp.body.photos || [];
+      assessments = fnResp.body.assessments || [];
+      source = `netlify-fn (${fnResp.cacheState}, ${fnResp.responseMs}ms)`;
+    } else {
+      // 2) Fall back to direct Supabase (function not deployed, errored,
+      //    or running site locally without Netlify).
+      const [photosRes, assessRes] = await Promise.all([
+        sb.from('photos')
+          .select('id, latitude, longitude, address, image_url, created_at')
+          .order('created_at', { ascending: false })
+          .limit(10000),
+        sb.from('assessments')
+          .select(`
+            id, photo_id, latitude, longitude, address, image_url, status,
+            distress_types, severity, stage2_confidence, stage1_confidence,
+            description, processed_at, created_at, expert_reviewed,
+            expert_corrected_types, expert_corrected_severity
+          `)
+          .order('created_at', { ascending: false })
+          .limit(10000),
+      ]);
+      if (photosRes.error) console.error('photos query error:', photosRes.error);
+      if (assessRes.error) console.error('assessments query error:', assessRes.error);
+      if (photosRes.error && assessRes.error) throw photosRes.error;
+      photos = photosRes.data || [];
+      assessments = assessRes.error ? [] : (assessRes.data || []);
+    }
 
-    const photos = photosRes.data || [];
-    const assessments = assessRes.error ? [] : (assessRes.data || []);
-
-    console.log(`[GeoAI] photos: ${photos.length}, assessments: ${assessments.length}`);
+    console.log(`[GeoAI] data via ${source}: photos=${photos.length}, assessments=${assessments.length}`);
     if (assessments.length) console.log('[GeoAI] sample assessment:', assessments[0]);
 
     const byPhotoId = new Map();

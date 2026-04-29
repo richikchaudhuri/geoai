@@ -176,6 +176,37 @@ The WebGIS deploys to **Netlify** with no build step. Either drag the repo onto 
 
 **Build command:** *(empty)* · **Publish directory:** `.`
 
+### Optional: Redis cache (Upstash) to cut Supabase reads
+
+The site ships with a Netlify Function at `netlify/functions/assessments.js`
+that sits between the browser and Supabase. On a cache hit it returns
+the result from **Upstash Redis** in ~30 ms; on a miss it fetches from
+Supabase and warms the cache for 5 minutes. One shared cache for every
+visitor — Supabase only gets hit once per 5-min window even with
+thousands of users.
+
+The function is **already in this repo and deployed automatically by
+Netlify**. It runs without Upstash too — if the env vars below aren't
+set, it just passes through to Supabase. Configuring Upstash is what
+flips the cache on.
+
+**Setup (~3 min):**
+
+1. Sign up at https://upstash.com (free tier, no credit card)
+2. Create a Redis database. Copy the **REST URL** and **REST Token**.
+3. In Netlify → **Site settings** → **Environment variables** → add:
+   - `UPSTASH_REDIS_REST_URL`   = your URL (looks like `https://xxx.upstash.io`)
+   - `UPSTASH_REDIS_REST_TOKEN` = your token
+4. Trigger a redeploy (push any commit, or **Deploys** → **Trigger deploy**).
+
+After that, watch the browser console — you'll see lines like
+`[GeoAI] data via netlify-fn (HIT, 38ms)` confirming Redis is in the
+loop. The first request after cache expiry shows `MISS` and takes a
+bit longer; subsequent ones inside the 5-min window are HITs.
+
+The browser-side `localStorage` cache stays — it's the L1 cache.
+Redis is L2 (shared across users). Supabase is the source of truth.
+
 ---
 
 ## 👥 Authors
