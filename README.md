@@ -11,8 +11,6 @@
 [![Stack](https://img.shields.io/badge/stack-Leaflet%20%7C%20Supabase%20%7C%20Kotlin-DC2626?style=flat-square)](#stack)
 [![Capstone](https://img.shields.io/badge/Capstone-BMSCE%202026-1A1A1C?style=flat-square)](#authors)
 
-[**Live Demo**](https://gisgeoai.netlify.app) · [**Web Dashboard**](#-web-dashboard) · [**Mobile App**](#-mobile-app) · [**Architecture**](#-architecture)
-
 <br/>
 
 ![GeoAI WebGIS — overview](docs/screenshots/01-overview.png)
