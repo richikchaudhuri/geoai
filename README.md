@@ -205,6 +205,32 @@ bit longer; subsequent ones inside the 5-min window are HITs.
 The browser-side `localStorage` cache stays — it's the L1 cache.
 Redis is L2 (shared across users). Supabase is the source of truth.
 
+### Self-host via Cloudflare Tunnel (free, no domain needed)
+
+If you'd rather not depend on Netlify's free tier, you can serve the
+site straight off your laptop through a free Cloudflare Tunnel —
+public HTTPS URL, no port-forwarding, no public IP, no credit card.
+
+```bash
+# one-time install
+winget install Cloudflare.cloudflared
+
+# every time you want the site online
+.\tunnel.bat
+```
+
+`tunnel.bat` starts a local Node server (`server.js`) on `:8000` —
+which serves the static site **and** proxies `/api/assessments`
+through the same Netlify function code, so the Upstash cache still
+works. Then it opens a `cloudflared` quick tunnel and prints a
+public `https://<random>.trycloudflare.com` URL.
+
+Caveats: the URL is ephemeral (changes on each restart), and the
+site is only up while your laptop is. Stop with `Ctrl+C`. For a
+stable URL, run `cloudflared tunnel login` once and route a named
+tunnel to a domain you own — see the
+[Cloudflare Tunnel docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
+
 ---
 
 ## 👥 Authors
