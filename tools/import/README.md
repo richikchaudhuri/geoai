@@ -3,7 +3,7 @@
 A Rust CLI for bulk-importing pavement-distress images into the GeoAI
 backend. Mirrors the mobile app's upload pipeline (Cloudinary unsigned
 preset + Supabase `photos` insert) but does it for an entire directory
-in parallel.
+in parallel — with reverse-geocoding, dedup-on-rerun, and retry/backoff.
 
 ## Why
 
@@ -29,14 +29,20 @@ fully self-contained. Drop it anywhere and run it.
 ## Usage
 
 ```bash
-# Walk a folder, use EXIF GPS when present, fall back to Bengaluru center
+# Basic — walk folder, use EXIF GPS where present, fall back to Bengaluru
 ./target/release/geoai-import \
   --dir ./bengaluru-batch \
   --default-lat 12.9716 \
   --default-lng 77.5946 \
   --concurrency 8
 
-# Dry-run first (parses EXIF, prints plan, uploads nothing)
+# With reverse-geocoding (slow: 1 req/sec via Nominatim)
+./target/release/geoai-import \
+  --dir ./bengaluru-batch \
+  --default-lat 12.9716 --default-lng 77.5946 \
+  --geocode
+
+# Dry-run first to inspect what would happen
 ./target/release/geoai-import --dir ./bengaluru-batch --dry-run
 ```
 
@@ -47,59 +53,131 @@ fully self-contained. Drop it anywhere and run it.
 | `--dir` | (required) | Directory to walk recursively for `*.jpg`, `*.jpeg`, `*.png`. |
 | `--default-lat` / `--default-lng` | none | Fallback coords for images without EXIF GPS. |
 | `--concurrency` | 4 | Parallel uploads (max 32). |
-| `--dry-run` | off | Extract metadata + print plan; skip uploads. |
+| `--dry-run` | off | Run stages 1+2, print plan; skip uploads (stage 3). |
 | `--skip-no-gps` | off | Skip files with no GPS instead of erroring out. |
+| `--geocode` | off | Enable Nominatim reverse-geocoding (throttled to 1 req/sec). |
+| `--state-file` | `.geoai-import-state.json` | Path to the JSON state file (dedup + geocode cache). |
+| `--no-resume` | off | Ignore the state file on startup. Still writes to it on success. |
+| `--retries` | 2 | Retries per request on transient failures (network, 5xx, 429). |
 
-## What it does per image
+## Pipeline
 
-1. **Read EXIF** — pull `GPSLatitude` / `GPSLongitude` (DMS rationals) and
-   their refs (N/S/E/W). If missing and `--default-lat` / `--default-lng`
-   are set, use those. Otherwise either skip (`--skip-no-gps`) or error.
-2. **Upload to Cloudinary** — multipart POST to
+```
+┌─────────────┐   ┌──────────────┐   ┌──────────────────┐   ┌──────────────────┐
+│ Stage 1     │   │ Stage 2      │   │ Stage 3 (parallel)                      │
+│ walk + sha  │ → │ geocode      │ → │ cloudinary upload  →  supabase insert  │
+│ + exif      │   │ (optional)   │   │ (retry w/ backoff)                      │
+└─────────────┘   └──────────────┘   └──────────────────┘   └──────────────────┘
+        ↓                ↓                                 ↓
+        └────────────────┴──────────── state file ────────┘
+                       (.geoai-import-state.json)
+```
+
+### Stage 1 — discovery, hashing, EXIF, dedup
+
+For each image:
+
+1. Compute **SHA-256** of the file contents.
+2. If the hash matches an entry in the state file's `uploads`, **skip** the
+   file (already uploaded in a prior run). Use `--no-resume` to override.
+3. Read **EXIF** `GPSLatitude` / `GPSLongitude` (DMS rationals) + their
+   refs (N/S/E/W). If missing and `--default-lat` / `--default-lng` are
+   set, use those. Otherwise either skip (`--skip-no-gps`) or error.
+
+### Stage 2 — reverse-geocoding (optional, `--geocode`)
+
+For each unique location (rounded to 4 decimal places, ~11 m), look up
+the address via [Nominatim](https://nominatim.openstreetmap.org).
+**Throttled to 1 request per 1.1 seconds** to comply with Nominatim's
+usage policy. Results are cached in the state file's `geocode_cache` so
+subsequent runs hit the cache.
+
+If `--geocode` is off (default), `address` is set to a `"12.9716, 77.5946"`-style
+coord string at upload time.
+
+### Stage 3 — parallel uploads with retry/backoff
+
+For each record:
+
+1. **Cloudinary** — multipart POST to
    `https://api.cloudinary.com/v1_1/{cloud}/image/upload` with the unsigned
    `photos` preset. Identical endpoint and preset to the mobile app.
-3. **Insert to Supabase** — `POST /rest/v1/photos` with `image_url`,
-   `address` (formatted lat/lng), `latitude`, `longitude`. The existing AI
-   worker picks the row up asynchronously and creates the corresponding
-   `assessments` row.
+2. **Supabase** — `POST /rest/v1/photos` with `image_url`, `address`,
+   `latitude`, `longitude`. The existing AI worker picks the row up
+   asynchronously and creates the corresponding `assessments` row.
 
-Per-file errors don't kill the batch. The tool keeps going and exits with
-status 1 if any uploads failed.
+**Retry rules:**
+
+- **Transient** errors (network, HTTP 5xx, HTTP 429) → retry up to
+  `--retries` times with exponential backoff (1s, 2s, 4s, …).
+- **Fatal** errors (4xx other than 429, malformed responses) → fail
+  immediately for that file. The rest of the batch continues.
+- After each successful upload the state file is rewritten atomically
+  (tmp + rename), so a Ctrl-C mid-run loses at most one image worth of
+  progress.
+
+## State file format
+
+```json
+{
+  "version": "0.2",
+  "uploads": {
+    "<sha256 hex>": {
+      "path": "C:/path/to/IMG_0001.jpg",
+      "image_url": "https://res.cloudinary.com/dnxpt5gea/image/upload/v.../abc.jpg",
+      "lat": 12.9716,
+      "lng": 77.5946,
+      "uploaded_at": 1747655280
+    }
+  },
+  "geocode_cache": {
+    "12.9716,77.5946": "St. Joseph's Indian High School, 1st Cross Road, D'Souza Layout, Bengaluru, Karnataka, 560001, India"
+  }
+}
+```
+
+Safe to delete: the next run starts fresh. Safe to commit (no secrets) —
+though the gitignore excludes it by default.
 
 ## Sample output
 
 ```
 Found 247 images in ./bengaluru-batch
-  201 via EXIF · 46 via --default · 0 skipped
+Stage 1: hash + EXIF + dedup
+  → 198 new · 173 EXIF / 25 default · 49 already-uploaded · 0 no-GPS skipped
+Stage 2: reverse-geocode via Nominatim (≤1 req/sec)
+  → 41 unique locations to fetch · 157 cache hits (across 198 records)
+00:00:46 [==============================] 41/41   ✓ MG Road, Bengaluru, Karnataka…
+Stage 3: uploading (concurrency=8, retries=2)
+00:00:31 [==============================] 198/198  ✓ IMG_5729.jpg
 
-  00:00:38 [==============================] 247/247  ✓ IMG_5729.jpg
-
-✓ 247 imported · ✗ 0 failed · 38.4s wall  (6.4/s)
+✓ 198 imported · ✗ 0 failed · 31.4s wall  (6.3/s)
 ```
+
+## Dependencies
+
+| Crate | Purpose |
+|---|---|
+| `tokio` | async runtime |
+| `reqwest` (rustls-tls) | HTTPS client, no OpenSSL |
+| `clap` | CLI parsing with derive macros |
+| `walkdir` | recursive directory traversal |
+| `kamadak-exif` | EXIF reading |
+| `serde` / `serde_json` | state file I/O |
+| `sha2` | SHA-256 for content dedup |
+| `indicatif` | progress bars |
+| `futures` | `buffer_unordered` for parallel I/O |
+| `anyhow` | error type erasure |
 
 ## Limitations
 
-- **No reverse-geocoding.** Address is `"12.9716, 77.5946"`-style. A future
-  `--geocode` flag could call Nominatim with the standard 1 req/sec rate
-  limit, but most callers don't need it (the WebGIS displays coords fine).
-- **No retry beyond the per-request timeout.** Failed uploads are reported
-  but not re-attempted in the same run. Re-running the tool on the same
-  folder will re-upload everything (Cloudinary returns a fresh URL each
-  time), which is fine for seeding but not for resumability.
+- **Re-running on the same folder with `--no-resume` re-uploads every
+  file.** Cloudinary will issue a fresh URL each time. This is expected
+  behaviour — `--no-resume` is for forcing a clean import.
+- **Nominatim returns a single line of `display_name`.** The current
+  GeoAI schema stores that in a single `address` column on the `photos`
+  table. If you need structured locality / city / postcode fields, the
+  request URL needs `&addressdetails=1` and the parser needs to pick
+  components — not currently wired.
 - **Anon JWT baked in.** Same key the mobile app and the WebGIS already
-  ship — RLS on the `photos` table is what actually guards writes.
-
-## How it's wired internally
-
-```
-┌─────────────┐    ┌──────────────────┐    ┌──────────────────┐
-│ WalkDir →   │    │ tokio + reqwest  │    │ Cloudinary REST  │
-│ EXIF parse  │ →  │ buffer_unordered │ →  │ ↓ secure_url     │
-│             │    │ (concurrency N)  │    │ Supabase REST    │
-└─────────────┘    └──────────────────┘    └──────────────────┘
-```
-
-Concurrency is implemented via `futures::stream::iter(...).buffer_unordered(N)`,
-which keeps exactly N requests in flight at once. The default of 4
-balances Cloudinary's free-tier rate limits against pipeline efficiency;
-the max of 32 is plenty for one-time imports.
+  ship — RLS on the `photos` table is what guards writes.

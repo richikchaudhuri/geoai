@@ -1,6 +1,6 @@
 [package]
 name = "geoai-import"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Bulk-import pavement-distress images to Cloudinary + Supabase"
 repository = "https://github.com/richikchaudhuri/geoai"
@@ -32,6 +32,9 @@ indicatif = "0.17"
 
 # Stream combinators for buffer_unordered concurrency
 futures = "0.3"
+
+# Content-hash for dedup / resumability
+sha2 = "0.10"
 
 [profile.release]
 opt-level = 3
