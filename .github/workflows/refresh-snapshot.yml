@@ -54,11 +54,16 @@ jobs:
             exit 1
           fi
 
-      - name: Commit if changed
+      - name: Commit if data changed (ignore timestamp churn)
         run: |
           set -e
-          if git diff --quiet data/snapshot.json data/snapshot.geojson; then
-            echo "No changes to snapshot files."
+          # The snapshot's fetchedAt / generated_at tick every run even when
+          # the underlying data is identical. Compare just the data fields
+          # (photos + assessments) against HEAD; only commit if those changed.
+          NEW=$(jq -S '{photos: .photos, assessments: .assessments}' data/snapshot.json)
+          OLD=$(git show HEAD:data/snapshot.json | jq -S '{photos: .photos, assessments: .assessments}')
+          if [ "$NEW" = "$OLD" ]; then
+            echo "Data unchanged (timestamps may differ). Skipping commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
