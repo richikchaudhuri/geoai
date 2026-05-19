@@ -193,10 +193,25 @@ that pings the Supabase REST endpoint once a day to keep it warm.
 The workflow runs automatically on the schedule. To trigger it manually:
 **Actions → keep-supabase-alive → Run workflow**.
 
-### Offline demo fallback
+### Static snapshot fallback
 
-Campus Wi-Fi can be unreliable. If you need to demo without depending on
-the live deployment, clone the repo and serve it locally:
+The repo ships a **committed snapshot** of the live data at
+[`data/snapshot.json`](data/snapshot.json) (plus a GeoJSON twin at
+[`data/snapshot.geojson`](data/snapshot.geojson) for QGIS / kepler.gl).
+If Supabase is unreachable — network blocked, project paused, RLS
+rejected — the WebGIS automatically falls back to that file and
+renders the snapshot dataset instead.
+
+The snapshot is regenerated weekly by a GitHub Actions workflow
+([`.github/workflows/refresh-snapshot.yml`](.github/workflows/refresh-snapshot.yml))
+which runs the `geoai-snapshot` Rust tool against the live Supabase
+and commits the result back. The action runs Mondays at 04:15 UTC and
+can be triggered manually from the **Actions** tab.
+
+### Offline demo fallback (last resort)
+
+If campus Wi-Fi blocks GitHub Pages itself, clone the repo and serve
+it locally:
 
 ```bash
 git clone https://github.com/richikchaudhuri/geoai
@@ -205,9 +220,8 @@ python -m http.server 8000
 # open http://localhost:8000
 ```
 
-The site loads the Supabase JS client from a CDN, so the only network
-dependency at demo time is Supabase itself (and that's what the
-keep-alive cron protects).
+Same site, same fallback chain: tries Supabase first, falls back to
+`data/snapshot.json` if Supabase is unreachable.
 
 ---
 

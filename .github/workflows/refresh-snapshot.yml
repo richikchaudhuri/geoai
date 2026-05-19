@@ -1,0 +1,68 @@
+# Weekly: rebuild data/snapshot.{json,geojson} from the live Supabase
+# tables and commit the result back to main if it changed.
+#
+# The snapshot is what the WebGIS falls back to when Supabase is
+# unreachable (institutional Wi-Fi blocked, project paused, etc.) and
+# what the research report cites as the frozen dataset.
+#
+# Runs Mondays at 04:15 UTC (09:45 IST) — staggered from the daily
+# supabase-keepalive cron at 03:30 UTC so they don't compete.
+name: refresh-snapshot
+
+on:
+  schedule:
+    - cron: '15 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write  # required to commit + push the refreshed snapshot
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/snapshot/target
+          key: ${{ runner.os }}-snapshot-${{ hashFiles('tools/snapshot/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-snapshot-
+
+      - name: Build geoai-snapshot
+        run: cargo build --release --manifest-path tools/snapshot/Cargo.toml
+
+      - name: Run snapshot (both formats)
+        run: ./tools/snapshot/target/release/geoai-snapshot --both
+
+      - name: Sanity-check non-empty
+        run: |
+          set -e
+          NEW_PHOTOS=$(jq '.photos | length' data/snapshot.json)
+          NEW_ASSESS=$(jq '.assessments | length' data/snapshot.json)
+          echo "Photos: $NEW_PHOTOS · Assessments: $NEW_ASSESS"
+          if [ "$NEW_PHOTOS" -lt 1 ]; then
+            echo "::error::Refusing to commit empty snapshot."
+            exit 1
+          fi
+
+      - name: Commit if changed
+        run: |
+          set -e
+          if git diff --quiet data/snapshot.json data/snapshot.geojson; then
+            echo "No changes to snapshot files."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/snapshot.json data/snapshot.geojson
+          git commit -m "Refresh data snapshot ($(date -u +%Y-%m-%dT%H:%MZ))"
+          git push

@@ -633,30 +633,49 @@ async function loadAssessments() {
   try {
     let photos = [];
     let assessments = [];
-    const source = 'supabase';
+    let source = 'supabase';
 
     // Direct Supabase fetch. The localStorage L1 cache (handled above)
     // absorbs repeat visits inside the 10-min TTL; cold loads hit Supabase.
-    const [photosRes, assessRes] = await Promise.all([
-      sb.from('photos')
-        .select('id, latitude, longitude, address, image_url, created_at')
-        .order('created_at', { ascending: false })
-        .limit(10000),
-      sb.from('assessments')
-        .select(`
-          id, photo_id, latitude, longitude, address, image_url, status,
-          distress_types, severity, stage2_confidence, stage1_confidence,
-          description, processed_at, created_at, expert_reviewed,
-          expert_corrected_types, expert_corrected_severity
-        `)
-        .order('created_at', { ascending: false })
-        .limit(10000),
-    ]);
-    if (photosRes.error) console.error('photos query error:', photosRes.error);
-    if (assessRes.error) console.error('assessments query error:', assessRes.error);
-    if (photosRes.error && assessRes.error) throw photosRes.error;
-    photos = photosRes.data || [];
-    assessments = assessRes.error ? [] : (assessRes.data || []);
+    // If Supabase is unreachable (network error, project paused, RLS rejected)
+    // we fall through to the static snapshot committed at data/snapshot.json.
+    try {
+      const [photosRes, assessRes] = await Promise.all([
+        sb.from('photos')
+          .select('id, latitude, longitude, address, image_url, created_at')
+          .order('created_at', { ascending: false })
+          .limit(10000),
+        sb.from('assessments')
+          .select(`
+            id, photo_id, latitude, longitude, address, image_url, status,
+            distress_types, severity, stage2_confidence, stage1_confidence,
+            description, processed_at, created_at, expert_reviewed,
+            expert_corrected_types, expert_corrected_severity
+          `)
+          .order('created_at', { ascending: false })
+          .limit(10000),
+      ]);
+      if (photosRes.error) console.error('photos query error:', photosRes.error);
+      if (assessRes.error) console.error('assessments query error:', assessRes.error);
+      if (photosRes.error && assessRes.error) throw photosRes.error;
+      photos = photosRes.data || [];
+      assessments = assessRes.error ? [] : (assessRes.data || []);
+      // Empty result might mean Supabase auto-paused — fall back to snapshot
+      // so the WebGIS shows something on cold opens after long inactivity.
+      if (photos.length === 0 && assessments.length === 0) {
+        throw new Error('empty result from Supabase');
+      }
+    } catch (supabaseErr) {
+      console.warn('[GeoAI] Supabase failed, loading static snapshot fallback:',
+        supabaseErr && supabaseErr.message ? supabaseErr.message : supabaseErr);
+      const snapResp = await fetch('data/snapshot.json', { cache: 'no-cache' });
+      if (!snapResp.ok) throw new Error(`snapshot HTTP ${snapResp.status}`);
+      const snap = await snapResp.json();
+      photos = Array.isArray(snap.photos) ? snap.photos : [];
+      assessments = Array.isArray(snap.assessments) ? snap.assessments : [];
+      source = `snapshot (${snap.fetchedAt || 'unknown'})`;
+      console.log(`[GeoAI] snapshot loaded: photos=${photos.length}, assessments=${assessments.length}, frozen at ${snap.fetchedAt}`);
+    }
 
     console.log(`[GeoAI] data via ${source}: photos=${photos.length}, assessments=${assessments.length}`);
     if (assessments.length) console.log('[GeoAI] sample assessment:', assessments[0]);
@@ -706,8 +725,12 @@ async function loadAssessments() {
     const classified = merged.filter(r => Array.isArray(r.distress_types) && r.distress_types.length).length;
     console.log(`[GeoAI] merged: ${merged.length} (with classification: ${classified})`);
 
-    // 2) Persist to cache so the next page load is instant + free
-    Cache.write(merged);
+    // 2) Persist to cache so the next page load is instant + free.
+    //    Only cache fresh Supabase data — never cache snapshot fallback,
+    //    so the user gets live data the moment Supabase is back.
+    if (source === 'supabase') {
+      Cache.write(merged);
+    }
 
     if (renderedFromCache) {
       // Background revalidate — only re-render if the data actually changed
