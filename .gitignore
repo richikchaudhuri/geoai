@@ -55,3 +55,7 @@ dist/
 # Cloudflare Tunnel binary — downloaded by the user, not version-controlled
 tools/cloudflared.exe
 tools/cloudflared
+
+# Rust CLI tool build artifacts
+tools/import/target/
+tools/import/Cargo.lock
