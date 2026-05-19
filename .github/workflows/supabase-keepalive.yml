@@ -1,0 +1,37 @@
+# Supabase free-tier auto-pauses projects after ~7 days of inactivity.
+# This workflow makes a single REST request once a day so the project
+# stays warm — critical for graded capstone demos that may be opened
+# weeks after submission.
+#
+# Cost: 1 read per day. Way under the 50k MAU / 500MB egress free quota.
+name: keep-supabase-alive
+
+on:
+  schedule:
+    # Every day at 03:30 UTC (09:00 IST). Cron syntax is UTC-only.
+    - cron: '30 3 * * *'
+  workflow_dispatch:  # lets us trigger manually from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit Supabase REST to keep the project active
+        env:
+          SUPABASE_URL: https://vtlkitpoffudiefuoijb.supabase.co
+          # Anon key is safe in this workflow — same key already shipped
+          # in client JS, RLS guards everything.
+          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0bGtpdHBvZmZ1ZGllZnVvaWpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMDAzMjIsImV4cCI6MjA4OTc3NjMyMn0.wLrwTky4k8iAELOvFbNeo063Z1rjQKOzzq3QYFqR6CU
+        run: |
+          set -e
+          STATUS=$(curl -s -o /tmp/body -w "%{http_code}" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/photos?select=id&limit=1")
+          echo "HTTP $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Unexpected status. Body:"
+            cat /tmp/body
+            exit 1
+          fi
+          echo "Supabase responded OK — project is awake."

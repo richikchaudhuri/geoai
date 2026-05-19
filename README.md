@@ -170,66 +170,44 @@ geoai/
 
 ## 🚀 Deploy
 
-The WebGIS deploys to **Netlify** with no build step. Either drag the repo onto [Netlify Drop](https://app.netlify.com/drop) for a one-shot deploy, or connect this GitHub repo for auto-deploys on every push to `main`.
+The WebGIS lives on **GitHub Pages** — free forever, whitelisted on every
+institutional network, zero build step. Push to `main`, site goes live.
 
-**Build command:** *(empty)* · **Publish directory:** `.`
+**Live URL:** `https://richikchaudhuri.github.io/geoai`
 
-### Optional: Redis cache (Upstash) to cut Supabase reads
+### One-time setup
 
-The site ships with a Netlify Function at `netlify/functions/assessments.js`
-that sits between the browser and Supabase. On a cache hit it returns
-the result from **Upstash Redis** in ~30 ms; on a miss it fetches from
-Supabase and warms the cache for 5 minutes. One shared cache for every
-visitor — Supabase only gets hit once per 5-min window even with
-thousands of users.
+1. In this repo: **Settings → Pages → Source: `main` branch, `/ (root)` → Save**.
+2. Wait ~60s. Site is live at the URL above.
+3. Every subsequent `git push origin main` triggers an auto-redeploy.
 
-The function is **already in this repo and deployed automatically by
-Netlify**. It runs without Upstash too — if the env vars below aren't
-set, it just passes through to Supabase. Configuring Upstash is what
-flips the cache on.
+That's it. No build command, no publish directory config, no env vars.
 
-**Setup (~3 min):**
+### Supabase keep-alive cron
 
-1. Sign up at https://upstash.com (free tier, no credit card)
-2. Create a Redis database. Copy the **REST URL** and **REST Token**.
-3. In Netlify → **Site settings** → **Environment variables** → add:
-   - `UPSTASH_REDIS_REST_URL`   = your URL (looks like `https://xxx.upstash.io`)
-   - `UPSTASH_REDIS_REST_TOKEN` = your token
-4. Trigger a redeploy (push any commit, or **Deploys** → **Trigger deploy**).
+Supabase's free tier auto-pauses a project after ~7 days of inactivity.
+A graded capstone may be opened weeks after submission, so this repo
+ships with a GitHub Actions workflow ([`.github/workflows/supabase-keepalive.yml`](.github/workflows/supabase-keepalive.yml))
+that pings the Supabase REST endpoint once a day to keep it warm.
 
-After that, watch the browser console — you'll see lines like
-`[GeoAI] data via netlify-fn (HIT, 38ms)` confirming Redis is in the
-loop. The first request after cache expiry shows `MISS` and takes a
-bit longer; subsequent ones inside the 5-min window are HITs.
+The workflow runs automatically on the schedule. To trigger it manually:
+**Actions → keep-supabase-alive → Run workflow**.
 
-The browser-side `localStorage` cache stays — it's the L1 cache.
-Redis is L2 (shared across users). Supabase is the source of truth.
+### Offline demo fallback
 
-### Self-host via Cloudflare Tunnel (free, no domain needed)
-
-If you'd rather not depend on Netlify's free tier, you can serve the
-site straight off your laptop through a free Cloudflare Tunnel —
-public HTTPS URL, no port-forwarding, no public IP, no credit card.
+Campus Wi-Fi can be unreliable. If you need to demo without depending on
+the live deployment, clone the repo and serve it locally:
 
 ```bash
-# one-time install
-winget install Cloudflare.cloudflared
-
-# every time you want the site online
-.\tunnel.bat
+git clone https://github.com/richikchaudhuri/geoai
+cd geoai
+python -m http.server 8000
+# open http://localhost:8000
 ```
 
-`tunnel.bat` starts a local Node server (`server.js`) on `:8000` —
-which serves the static site **and** proxies `/api/assessments`
-through the same Netlify function code, so the Upstash cache still
-works. Then it opens a `cloudflared` quick tunnel and prints a
-public `https://<random>.trycloudflare.com` URL.
-
-Caveats: the URL is ephemeral (changes on each restart), and the
-site is only up while your laptop is. Stop with `Ctrl+C`. For a
-stable URL, run `cloudflared tunnel login` once and route a named
-tunnel to a domain you own — see the
-[Cloudflare Tunnel docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
+The site loads the Supabase JS client from a CDN, so the only network
+dependency at demo time is Supabase itself (and that's what the
+keep-alive cron protects).
 
 ---
 
