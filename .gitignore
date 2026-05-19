@@ -59,6 +59,8 @@ tools/cloudflared
 # Rust CLI tool build artifacts
 tools/import/target/
 tools/import/Cargo.lock
+tools/snapshot/target/
+tools/snapshot/Cargo.lock
 
 # geoai-import local state (sha256 dedup + geocode cache)
 .geoai-import-state.json

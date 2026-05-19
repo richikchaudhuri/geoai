@@ -1,0 +1,30 @@
+[package]
+name = "geoai-snapshot"
+version = "0.1.0"
+edition = "2021"
+description = "Export live Supabase photos + assessments to a static JSON / GeoJSON file"
+repository = "https://github.com/richikchaudhuri/geoai"
+license = "MIT"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client — rustls (no OpenSSL pain on Windows)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# CLI parsing
+clap = { version = "4", features = ["derive"] }
+
+# JSON
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
