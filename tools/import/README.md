@@ -28,6 +28,8 @@ fully self-contained. Drop it anywhere and run it.
 
 ## Usage
 
+### Bash / zsh / Git Bash
+
 ```bash
 # Basic — walk folder, use EXIF GPS where present, fall back to Bengaluru
 ./target/release/geoai-import \
@@ -44,6 +46,24 @@ fully self-contained. Drop it anywhere and run it.
 
 # Dry-run first to inspect what would happen
 ./target/release/geoai-import --dir ./bengaluru-batch --dry-run
+```
+
+### PowerShell (Windows)
+
+Either use backtick `` ` `` for line continuation, or put it all on one
+line. PowerShell does **not** accept `\` as a line continuation.
+
+```powershell
+# One-liner
+.\target\release\geoai-import.exe --dir C:\bengaluru-batch --default-lat 12.9716 --default-lng 77.5946 --geocode --concurrency 8
+
+# Multi-line with backtick
+.\target\release\geoai-import.exe `
+  --dir C:\bengaluru-batch `
+  --default-lat 12.9716 `
+  --default-lng 77.5946 `
+  --geocode `
+  --concurrency 8
 ```
 
 ### Flags
