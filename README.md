@@ -7,7 +7,7 @@
 *Citizens snap photos of damaged roads — AI classifies each one — civic authorities see hotspots in real time.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-FACC15.svg?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android-22C55E?style=flat-square)](#)
+[![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android%20%7C%20iOS-22C55E?style=flat-square)](#)
 [![Stack](https://img.shields.io/badge/stack-Leaflet%20%7C%20Supabase%20%7C%20Kotlin-DC2626?style=flat-square)](#stack)
 [![Capstone](https://img.shields.io/badge/Capstone-BMSCE%202026-1A1A1C?style=flat-square)](#authors)
 
@@ -23,12 +23,13 @@
 
 GeoAI is an end-to-end civic-tech system that turns citizen smartphone photos into actionable road-maintenance intelligence. A two-stage vision-language model (Qwen2.5-VL-7B fine-tuned on RDD2022 + GAPs V2) classifies each photo into a **distress type** (longitudinal crack, transverse crack, alligator crack, pothole, block crack) with **severity** (Less / Moderate / Red Alert) and a **confidence score** read directly from raw model logits — not from string matching.
 
-This repo holds the **two client-facing pieces** of that system:
+This repo holds the **three client-facing pieces** of that system:
 
 | | What it does |
 |---|---|
 | 🗺️ **WebGIS** *(this repo's root)* | Civic-authority hotspot map. Renders classified assessments from Supabase on a Leaflet map with smart clustering, severity & day/night filtering, and JARVIS-style detail cards. |
 | 📱 **Mobile** *(`mobile/`)* | Native Android (Kotlin) capture client. CameraX preview, pinch-zoom 1:1 crop, flash toggle, low-light hint, 10-second live location refresh. Uploads to Cloudinary + writes to Supabase. |
+| 🛣️ **iOS** *([`ios/`](ios/README.md))* | Native SwiftUI/MapKit dashboard, horizontal assessment cards, road-focused icons, camera reports with capture time/GPS metadata, and protected local drafts. |
 
 The AI pipeline, FastAPI server, expert-review UI, and Supabase schema live in the team's GPU-server repository — they're not in this repo.
 
@@ -132,6 +133,14 @@ cd mobile
 
 ---
 
+## iOS app
+
+Open [`ios/GeoAI.xcodeproj`](ios/GeoAI.xcodeproj) in Xcode 26 or newer. Select the GeoAI scheme and your signing team for a physical device. The app targets iOS 17+ and opens with the bundled demo snapshot; live data and uploads require the public Supabase and Cloudinary configuration documented in [`ios/README.md`](ios/README.md).
+
+The latest camera startup/recovery changes compile but still need a physical-device preview and capture check. See [`ios/VERIFICATION.md`](ios/VERIFICATION.md) for tested behavior and limitations. The companion backend migration adds nullable photo capture timestamps without changing upload/queue timestamps.
+
+---
+
 ## 📂 Repo Layout
 
 ```
@@ -149,6 +158,7 @@ geoai/
 │   ├── build.gradle.kts
 │   └── README.md                   # Mobile-specific docs
 │
+├── ios/                            # Native SwiftUI/MapKit app and tests
 ├── README.md                       # ← you are here
 ├── LICENSE                         # MIT
 └── .gitignore
