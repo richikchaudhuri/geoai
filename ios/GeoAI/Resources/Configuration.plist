@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>SupabaseURL</key><string></string>
-  <key>SupabasePublicKey</key><string></string>
-  <key>CloudinaryCloudName</key><string></string>
-  <key>CloudinaryUploadPreset</key><string></string>
+  <key>SupabaseURL</key><string>https://vtlkitpoffudiefuoijb.supabase.co</string>
+  <key>SupabasePublicKey</key><string>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0bGtpdHBvZmZ1ZGllZnVvaWpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMDAzMjIsImV4cCI6MjA4OTc3NjMyMn0.wLrwTky4k8iAELOvFbNeo063Z1rjQKOzzq3QYFqR6CU</string>
+  <key>CloudinaryCloudName</key><string>dnxpt5gea</string>
+  <key>CloudinaryUploadPreset</key><string>photos</string>
 </dict></plist>

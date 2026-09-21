@@ -6,6 +6,22 @@ import CoreLocation
 
 @MainActor
 final class CaptureViewModel: ObservableObject {
+    enum SubmissionStage {
+        case savingDraft
+        case uploadingPhoto
+        case checkingReceipt
+        case sendingDetails
+
+        var label: String {
+            switch self {
+            case .savingDraft: return "Saving your reviewed report…"
+            case .uploadingPhoto: return "Uploading your photo…"
+            case .checkingReceipt: return "Checking report status…"
+            case .sendingDetails: return "Sending report details…"
+            }
+        }
+    }
+
     @Published private(set) var draft: CaptureDraft?
     @Published private(set) var preview: UIImage?
     @Published private(set) var isLoading = true
@@ -20,7 +36,7 @@ final class CaptureViewModel: ObservableObject {
     @Published var locationDescription = "Enter coordinates or use your current location."
     @Published var errorMessage: String?
     @Published var statusMessage = "A photo and reviewed location make a useful report."
-    @Published private(set) var submissionStage = ""
+    @Published private(set) var submissionStage: SubmissionStage = .savingDraft
 
     let configuration: CaptureConfiguration
     private let store = CaptureDraftStore()
@@ -235,8 +251,9 @@ final class CaptureViewModel: ObservableObject {
             return
         }
         saveTask?.cancel()
+        submissionStage = .savingDraft
         isSubmitting = true
-        defer { isSubmitting = false; submissionStage = "" }
+        defer { isSubmitting = false }
         do {
             // The protected image and all reviewed metadata are persisted before networking.
             try await store.save(value)
@@ -245,14 +262,14 @@ final class CaptureViewModel: ObservableObject {
             if let uploaded = value.cloudImageURL {
                 imageURL = uploaded
             } else {
-                submissionStage = "Uploading your photo…"
+                submissionStage = .uploadingPhoto
                 imageURL = try await client.uploadImage(data)
                 value.cloudImageURL = imageURL
                 draft = value
                 try await store.save(value)
             }
 
-            submissionStage = "Checking report status…"
+            submissionStage = .checkingReceipt
             if try await client.reportExists(imageURL: imageURL) {
                 await finishConfirmed()
                 return
@@ -267,7 +284,7 @@ final class CaptureViewModel: ObservableObject {
             value.lastSubmissionError = nil
             draft = value
             try await store.save(value)
-            submissionStage = "Sending report details…"
+            submissionStage = .sendingDetails
             try await client.insertReport(imageURL: imageURL, latitude: coordinates.latitude,
                                           longitude: coordinates.longitude, address: resolvedAddress,
                                           capturedAt: value.captureMetadata?.capturedAt)

@@ -1,5 +1,9 @@
 import SwiftUI
 import GeoAICore
+import ThinkingOrbsKit
+
+typealias ThinkingOrbStyle = ThinkingOrbsKit.OrbState
+typealias ThinkingOrbStyles = ThinkingOrbsKit.OrbStylePalette
 
 enum GeoPalette {
     static let ink = Color(red: 0.10, green: 0.10, blue: 0.11)
@@ -16,12 +20,74 @@ enum GeoPalette {
     }
 }
 
+/// Pick once per loading view, never per animation frame or body update.
+/// A shared style keeps multiple indicators for the same operation coordinated.
+struct ThinkingOrb: View {
+    var style: ThinkingOrbStyle? = nil
+    var size: CGFloat = 44
+    var active = true
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isVisible = false
+    @State private var selectedStyle: ThinkingOrbStyle?
+
+    var body: some View {
+        ThinkingOrbsKit.ThinkingOrb(
+            state: style ?? selectedStyle ?? .composing,
+            size: size <= 32 ? .px20 : .px64,
+            paused: !active || !isVisible || scenePhase != .active,
+            displaySize: Double(size)
+        )
+        .frame(width: size, height: size)
+        .fixedSize()
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+        .onAppear {
+            if selectedStyle == nil { selectedStyle = ThinkingOrbStyles.next() }
+            isVisible = true
+        }
+        .onDisappear { isVisible = false }
+        .onChange(of: active) { wasActive, isActive in
+            if !wasActive && isActive {
+                selectedStyle = ThinkingOrbStyles.next(excluding: selectedStyle)
+            }
+        }
+    }
+}
+
+struct ThinkingOrbs: View {
+    var style: ThinkingOrbStyle? = nil
+    var label: String = "Updating road intelligence"
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ThinkingOrb(style: style, size: 32)
+            Text(label)
+                .font(.subheadline.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .glass(radius: 24)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct GeoPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.28, dampingFraction: 0.78), value: configuration.isPressed)
+    }
+}
+
 struct BrandMark: View {
-    var size: CGFloat = 35
+    var size: CGFloat = 39
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text("GEO")
-                .font(.custom("Rostex-Outline", size: size))
+                .font(.custom("Rostex-Outline", fixedSize: size))
             Text("AI").font(.system(size: size * 0.46, weight: .bold, design: .rounded))
         }
         .foregroundStyle(.primary)
@@ -65,13 +131,13 @@ struct RoundControl: View {
     var body: some View {
         Button(action: action) {
             Group {
-                if busy { ProgressView().tint(.primary) }
-                else { Image(systemName: symbol).font(.system(size: 19, weight: .medium)) }
+                if busy { ThinkingOrb(size: 28) }
+                else { Image(systemName: symbol).font(.system(size: 21, weight: .medium)) }
             }
-            .frame(width: 48, height: 48)
+            .frame(width: 54, height: 54)
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(GeoPressStyle())
         .foregroundStyle(.primary)
         .modifier(RoundControlSurface())
         .disabled(busy)
@@ -107,8 +173,8 @@ struct Eyebrow: View {
     let text: String
     var body: some View {
         Text(text.uppercased())
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .tracking(1.8)
+            .font(.system(.footnote, design: .rounded, weight: .semibold))
+            .tracking(1.3)
             .foregroundStyle(.secondary)
     }
 }
@@ -117,10 +183,10 @@ struct SeverityBadge: View {
     let row: RoadAssessment
     var body: some View {
         Text(row.isAssessed ? row.severity.title.uppercased() : row.state.title.uppercased())
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(.caption, design: .rounded, weight: .bold))
             .tracking(0.6)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 9).padding(.vertical, 5)
+            .foregroundStyle(row.isAssessed && (row.severity == .low || row.severity == .moderate) ? GeoPalette.ink : .white)
+            .padding(.horizontal, 11).padding(.vertical, 6)
             .background(row.isAssessed ? GeoPalette.severity(row.severity) : Color.gray, in: Capsule())
     }
 }
@@ -291,22 +357,28 @@ struct RoadImage: View {
     }
 
     var body: some View {
-        AsyncImage(url: imageURL, transaction: Transaction(animation: .easeOut(duration: reduceMotion ? 0.12 : 0.26))) { phase in
-            switch phase {
-            case .success(let image): image.resizable().scaledToFill().transition(.opacity)
-            case .failure:
-                placeholder(text: "Photo unavailable")
-            case .empty:
-                ZStack {
-                    Color.secondary.opacity(0.08)
-                    if imageURL == nil { RoadDistressIcon(type: "Road", size: 28).foregroundStyle(.secondary) }
-                    else { ProgressView().tint(.secondary) }
+        // The container owns layout. A loaded landscape image must never grow
+        // a vertical scroll view to its aspect-fill width; clipping alone only
+        // clips drawing and does not constrain the size reported to the parent.
+        GeometryReader { bounds in
+            AsyncImage(url: imageURL, transaction: Transaction(animation: .easeOut(duration: reduceMotion ? 0.12 : 0.26))) { phase in
+                switch phase {
+                case .success(let image): image.resizable().scaledToFill().transition(.opacity)
+                case .failure:
+                    placeholder(text: "Photo unavailable")
+                case .empty:
+                    ZStack {
+                        Color.secondary.opacity(0.08)
+                        if imageURL == nil { RoadDistressIcon(type: "Road", size: 28).foregroundStyle(.secondary) }
+                        else { ThinkingOrb(size: 28).id(imageURL) }
+                    }
+                @unknown default:
+                    placeholder(text: "Photo unavailable")
                 }
-            @unknown default:
-                placeholder(text: "Photo unavailable")
             }
+            .frame(width: bounds.size.width, height: bounds.size.height)
+            .clipped()
         }
-        .clipped()
         .accessibilityLabel("Road observation photo")
     }
 

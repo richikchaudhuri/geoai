@@ -20,6 +20,9 @@ geoai_flags=(-swift-version 5 -module-cache-path "$geoai_check_dir/cache"
 xcrun swiftc "${geoai_flags[@]}" -emit-module -parse-as-library -module-name GeoAICore \
   -emit-module-path "$geoai_check_dir/GeoAICore.swiftmodule" \
   "$geoai_root"/Packages/GeoAICore/Sources/GeoAICore/*.swift
+xcrun swiftc "${geoai_flags[@]}" -emit-module -parse-as-library -module-name ThinkingOrbsKit \
+  -emit-module-path "$geoai_check_dir/ThinkingOrbsKit.swiftmodule" \
+  "$geoai_root"/Packages/ThinkingOrbsKit/Sources/ThinkingOrbsKit/*.swift
 xcrun swiftc "${geoai_flags[@]}" -I "$geoai_check_dir" -typecheck \
   "$geoai_root"/GeoAI/*.swift "$geoai_root"/GeoAI/*/*.swift
-echo "PASS: GeoAICore and all app Swift files typecheck against Mac Catalyst."
+echo "PASS: GeoAICore, ThinkingOrbsKit and all app Swift files typecheck against Mac Catalyst."

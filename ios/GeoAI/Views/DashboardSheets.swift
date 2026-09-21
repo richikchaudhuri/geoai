@@ -28,10 +28,16 @@ struct FilterSheet: View {
                                    selected: store.filter.dayPeriod == period) { store.filter.dayPeriod = period }
                         }
                         Text("Day and night use the photo’s capture time and location. Dashed markers indicate night captures.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }
-                    Text("\(store.visibleRows.count) observations match your filters.").font(.subheadline)
-                    Button("Reset filters") { store.clearFilters() }.font(.subheadline)
+                    Text("\(store.visibleRows.count) observations match your filters.").font(.body)
+                    Button { store.clearFilters() } label: {
+                        Text("Reset filters")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .padding(.horizontal, 16)
+                            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 16))
+                    }.buttonStyle(GeoPressStyle())
                 }.padding(24)
             }
             .navigationTitle("Filters")
@@ -51,11 +57,12 @@ struct FilterSheet: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 if let color { Circle().fill(color).frame(width: 12, height: 12) }
-                Text(title).font(.subheadline.weight(selected ? .semibold : .regular))
+                Text(title).font(.body.weight(selected ? .semibold : .regular))
                 Spacer()
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle").foregroundStyle(selected ? Color.primary : Color.secondary)
-            }.padding(15).background(Color.primary.opacity(selected ? 0.07 : 0.025), in: RoundedRectangle(cornerRadius: 16))
-        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+            }.frame(minHeight: 28).padding(16)
+                .background(Color.primary.opacity(selected ? 0.07 : 0.025), in: RoundedRectangle(cornerRadius: 18))
+        }.buttonStyle(GeoPressStyle()).accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -63,7 +70,12 @@ struct SettingsSheet: View {
     @Binding var styleName: String
     let configuration: AppConfiguration
     @Environment(\.dismiss) private var dismiss
-    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var columns: [GridItem] {
+        dynamicTypeSize.isAccessibilitySize
+            ? [GridItem(.flexible())]
+            : [GridItem(.adaptive(minimum: 150), spacing: 14)]
+    }
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -74,38 +86,44 @@ struct SettingsSheet: View {
                         ForEach(GeoMapStyle.allCases) { style in
                             Button { styleName = style.rawValue } label: {
                                 VStack(alignment: .leading, spacing: 12) {
-                                    MapStyleSwatch(style: style).frame(height: 85).clipShape(RoundedRectangle(cornerRadius: 13))
+                                    MapStyleSwatch(style: style).frame(height: 100).clipShape(RoundedRectangle(cornerRadius: 15))
                                     HStack {
-                                        Text(style.title).font(.subheadline.weight(.medium))
+                                        Text(style.title).font(.body.weight(.medium))
                                         Spacer()
                                         if style.rawValue == styleName { Image(systemName: "checkmark.circle.fill") }
                                     }
-                                }.padding(10)
+                                }.padding(12)
                                     .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 21))
                                     .overlay { RoundedRectangle(cornerRadius: 21).strokeBorder(style.rawValue == styleName ? Color.primary : .clear, lineWidth: 1.5) }
-                            }.buttonStyle(.plain).accessibilityAddTraits(style.rawValue == styleName ? .isSelected : [])
+                            }.buttonStyle(GeoPressStyle()).accessibilityAddTraits(style.rawValue == styleName ? .isSelected : [])
                         }
                     }
                     Text("Maps and place search use Apple Maps. Appearance tiles above are illustrations.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 12) {
-                        Eyebrow(text: "Connected services")
+                        Eyebrow(text: "Services")
                         connection("Live observations", ready: configuration.hasDatabase)
                         connection("Photo reporting", ready: configuration.capture.isConfigured)
-                        Text("This build includes a saved demo dataset. To connect your project, add its public configuration in Xcode. Private server keys stay on your backend.")
-                            .font(.caption).foregroundStyle(.secondary)
+                        Text("Service availability is checked when you refresh the map or send a photo. The map shows whether observations are live, saved, or a demo.")
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }.padding(18).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 22))
                 }.padding(24)
             }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }.presentationDragIndicator(.visible)
     }
     private func connection(_ name: String, ready: Bool) -> some View {
-        HStack {
-            Text(name).font(.subheadline)
-            Spacer()
-            Text(ready ? "Configured" : "Setup needed").font(.caption).foregroundStyle(.secondary)
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+        return layout {
+            Text(name).font(.body)
+            if !dynamicTypeSize.isAccessibilitySize { Spacer() }
+            Text(ready ? "Configured" : "Setup needed").font(.subheadline).foregroundStyle(.secondary)
         }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -137,6 +155,7 @@ struct ObservationListSheet: View {
     @ObservedObject var store: AppStore
     var embedded = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var query = ""
     private var rows: [RoadAssessment] {
         var filter = store.filter
@@ -149,19 +168,25 @@ struct ObservationListSheet: View {
                 Section {
                     ForEach(rows) { row in
                         NavigationLink { AssessmentDetailView(row: row, embedded: true) } label: {
-                            HStack(spacing: 14) {
+                            rowLayout {
                                 RoadImage(url: row.imageURL, pixelWidth: 240)
-                                    .frame(width: 72, height: 82).clipShape(RoundedRectangle(cornerRadius: 15))
-                                VStack(alignment: .leading, spacing: 7) {
+                                    .frame(width: dynamicTypeSize.isAccessibilitySize ? nil : 84,
+                                           height: dynamicTypeSize.isAccessibilitySize ? 140 : 104)
+                                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                                    .accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: 9) {
                                     SeverityBadge(row: row)
-                                    HStack(alignment: .top, spacing: 6) {
-                                        RoadDistressIcon(type: row.primaryType, size: 18)
+                                    HStack(alignment: .top, spacing: 8) {
+                                        RoadDistressIcon(type: row.primaryType, size: 22)
                                             .foregroundStyle(GeoPalette.severity(row.severity))
-                                        Text(row.primaryType).font(.subheadline.weight(.semibold))
+                                        Text(row.primaryType).font(.body.weight(.semibold))
+                                            .fixedSize(horizontal: false, vertical: true)
                                     }
-                                    Text(row.address).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    Text(row.address.isEmpty ? "Location recorded on map" : row.address)
+                                        .font(.subheadline).foregroundStyle(.secondary)
+                                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                                 }
-                            }.padding(.vertical, 5)
+                            }.padding(.vertical, 10)
                         }
                     }
                 } header: { Text("\(rows.count) observations · \(store.source.label.lowercased())") }
@@ -178,6 +203,12 @@ struct ObservationListSheet: View {
             .refreshable { await store.refresh() }
         }.presentationDragIndicator(.visible)
     }
+
+    private var rowLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+    }
 }
 
 struct AboutSheet: View {
@@ -188,18 +219,18 @@ struct AboutSheet: View {
                 VStack(alignment: .leading, spacing: 26) {
                     BrandMark(size: 62).padding(.top, 12)
                     SheetHeader(eyebrow: "Roads, understood", title: "Every observation\nadds perspective.")
-                    Text("Explore road conditions, inspect AI assessments, and contribute photos from the street. GeoAI brings the website’s map-first experience to a native iPhone app.")
+                    Text("Explore road conditions, understand assessments, and contribute photos from the street. A clearer view of the roads around you.")
                         .font(.body).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 16) {
                         Label("Tap a marker to inspect its photos and assessment.", systemImage: "mappin.and.ellipse")
                         Label("Filter severity and day or night captures.", systemImage: "line.3.horizontal.decrease.circle")
                         Label("Review a photo and its location before submitting.", systemImage: "camera")
-                    }.font(.subheadline)
+                    }.font(.body)
                     Text("Assessments may be automated or awaiting expert review. Use current road conditions and your own judgement when travelling.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                     Divider()
                     Text("Built from the GeoAI project. Original project © 2026 Suraj B · Richik Chaudhuri · Sushant Deo, MIT License. Map data © Apple and its providers.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(.secondary)
                 }.padding(26)
             }.toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }.presentationDragIndicator(.visible)

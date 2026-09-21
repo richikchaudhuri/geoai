@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		106AB6EFD2F71E66F2F51CDD /* CaptureUploadClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F97F5C6ED1E7762C3776010 /* CaptureUploadClient.swift */; };
 		17D47E52BD65546E9E9F963B /* UserLocationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5679088EFB4B3C700B97F0 /* UserLocationController.swift */; };
+		1B210D7EB943C51A444EF32B /* ThirdPartyNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 675BB662FDFE8C2C8BBA99FB /* ThirdPartyNotices.txt */; };
 		29C45508E6E6035B3A6F68BA /* DashboardSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2877B10558EDC94FB9F0A97 /* DashboardSheets.swift */; };
 		4F8A764E1E555237C7A7D7CA /* CaptureViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE72E1A2BFAD899C11C707A /* CaptureViewModel.swift */; };
 		595556EE29A600A4172A0ECA /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26CA3523253353FB28E5769E /* AppConfiguration.swift */; };
@@ -28,6 +29,7 @@
 		D37609C33677D94A1B2BCDF1 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E0540AF68D6F26D34701715 /* AppStore.swift */; };
 		DAF299C8CCDB80912147B6EF /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = E890A931F0AF47CF34D22389 /* DesignSystem.swift */; };
 		DFF94BF1E4861815980505C4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 857087045B93B258431B0599 /* Assets.xcassets */; };
+		E6AA53667A8BD6965D768BE4 /* ThinkingOrbsKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2B4D8179D60AF4030266737D /* ThinkingOrbsKit */; };
 		F53C75207C4B99633CB7CBFF /* CaptureFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB56E234FA42CA3445DC2413 /* CaptureFlow.swift */; };
 		FC112E0B89776716A7A3E4B2 /* Configuration.plist in Resources */ = {isa = PBXBuildFile; fileRef = B4867AF38E99923B35BD9821 /* Configuration.plist */; };
 /* End PBXBuildFile section */
@@ -39,14 +41,16 @@
 		41D4FD8F2893E3FEE5685C24 /* CaptureConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureConfiguration.swift; sourceTree = "<group>"; };
 		425EDBE1481D628E7EFC5913 /* rostex.outline.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = rostex.outline.ttf; sourceTree = "<group>"; };
 		4C5679088EFB4B3C700B97F0 /* UserLocationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserLocationController.swift; sourceTree = "<group>"; };
-		4F2D89B1EA4B6FCCA0E32073 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		4F2D89B1EA4B6FCCA0E32073 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		5F48622B36040D3302707763 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
-		67FAC54527A1EE3C3AB13114 /* GeoAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GeoAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		675BB662FDFE8C2C8BBA99FB /* ThirdPartyNotices.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = ThirdPartyNotices.txt; sourceTree = "<group>"; };
+		67FAC54527A1EE3C3AB13114 /* GeoAI.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GeoAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6B2EDBC3458AF2E729878B3E /* snapshot.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = snapshot.json; sourceTree = "<group>"; };
 		857087045B93B258431B0599 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8C1D8ABCC3D1F367C466F7B6 /* GeoAIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeoAIApp.swift; sourceTree = "<group>"; };
 		9AE72E1A2BFAD899C11C707A /* CaptureViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureViewModel.swift; sourceTree = "<group>"; };
 		9E0540AF68D6F26D34701715 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
+		9E65D5BB23D8C36D5F8676FF /* ThinkingOrbsKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ThinkingOrbsKit; path = Packages/ThinkingOrbsKit; sourceTree = SOURCE_ROOT; };
 		9F97F5C6ED1E7762C3776010 /* CaptureUploadClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureUploadClient.swift; sourceTree = "<group>"; };
 		A2877B10558EDC94FB9F0A97 /* DashboardSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardSheets.swift; sourceTree = "<group>"; };
 		B4867AF38E99923B35BD9821 /* Configuration.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Configuration.plist; sourceTree = "<group>"; };
@@ -65,6 +69,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6B45BDA42E4F681BB2E1CD63 /* GeoAICore in Frameworks */,
+				E6AA53667A8BD6965D768BE4 /* ThinkingOrbsKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -85,6 +90,7 @@
 			isa = PBXGroup;
 			children = (
 				41764EC7359F58005A5946E4 /* GeoAICore */,
+				9E65D5BB23D8C36D5F8676FF /* ThinkingOrbsKit */,
 			);
 			path = Packages;
 			sourceTree = "<group>";
@@ -153,6 +159,7 @@
 				4F2D89B1EA4B6FCCA0E32073 /* PrivacyInfo.xcprivacy */,
 				425EDBE1481D628E7EFC5913 /* rostex.outline.ttf */,
 				6B2EDBC3458AF2E729878B3E /* snapshot.json */,
+				675BB662FDFE8C2C8BBA99FB /* ThirdPartyNotices.txt */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -183,6 +190,7 @@
 			name = GeoAI;
 			packageProductDependencies = (
 				45AF3ED4B37A2468D09A1850 /* GeoAICore */,
+				2B4D8179D60AF4030266737D /* ThinkingOrbsKit */,
 			);
 			productName = GeoAI;
 			productReference = 67FAC54527A1EE3C3AB13114 /* GeoAI.app */;
@@ -213,6 +221,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				89A5B82A7351E8B6B2215C38 /* XCLocalSwiftPackageReference "Packages/GeoAICore" */,
+				3800655492AF1AE2B924529B /* XCLocalSwiftPackageReference "Packages/ThinkingOrbsKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E1E34B007390816A3BCF307F /* Products */;
@@ -232,6 +241,7 @@
 				DFF94BF1E4861815980505C4 /* Assets.xcassets in Resources */,
 				FC112E0B89776716A7A3E4B2 /* Configuration.plist in Resources */,
 				6B9D00949DF8D7BBACEB5047 /* PrivacyInfo.xcprivacy in Resources */,
+				1B210D7EB943C51A444EF32B /* ThirdPartyNotices.txt in Resources */,
 				75A284197A0CBE584D406901 /* rostex.outline.ttf in Resources */,
 				8C2743608C5D1D8F95435E2A /* snapshot.json in Resources */,
 			);
@@ -272,7 +282,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 11;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = GeoAI/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -291,7 +301,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 11;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = GeoAI/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -454,6 +464,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		3800655492AF1AE2B924529B /* XCLocalSwiftPackageReference "Packages/ThinkingOrbsKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ThinkingOrbsKit;
+		};
 		89A5B82A7351E8B6B2215C38 /* XCLocalSwiftPackageReference "Packages/GeoAICore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/GeoAICore;
@@ -461,6 +475,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		2B4D8179D60AF4030266737D /* ThinkingOrbsKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ThinkingOrbsKit;
+		};
 		45AF3ED4B37A2468D09A1850 /* GeoAICore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = GeoAICore;

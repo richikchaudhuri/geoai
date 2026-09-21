@@ -1,6 +1,6 @@
 # Capture timestamp migration
 
-Apply `001_photos_captured_at.sql` in the Supabase project's SQL editor before sending new photo reports from this app. Use a database-owner/admin session; do not put privileged database or service-role credentials in the app. The existing `public.photos` table and backend integration must already be installed. This migration has been supplied as a file; it has not been executed against any database during development.
+Apply `001_photos_captured_at.sql` in the Supabase project's SQL editor before sending new photo reports from this app. Use a database-owner/admin session; do not put privileged database or service-role credentials in the app. The existing `public.photos` table and backend integration must already be installed. This migration was applied on September 21, 2026 to the configured `vtlkitpoffudiefuoijb` project. The SQL editor confirmed the nullable timestamp column, and a subsequent public-key REST read confirmed that it is visible to the app. Other projects must apply the migration separately.
 
 The migration adds nullable `photos.captured_at` (`TIMESTAMPTZ`) and requests a PostgREST schema-cache reload. It is safe to repeat. It does not backfill, overwrite or remove rows, alter RLS policies or grants, or change the existing photo-to-assessment trigger. Projects with column-specific grants may require their administrator to permit the existing upload role to insert this new column; no permissions are broadened by this migration.
 

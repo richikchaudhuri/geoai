@@ -1,5 +1,6 @@
 import SwiftUI
 import GeoAICore
+import ThinkingOrbsKit
 
 struct DashboardView: View {
     @ObservedObject var store: AppStore
@@ -17,8 +18,11 @@ struct DashboardView: View {
     @State private var isSearchOpen = false
     @State private var summaryExpanded = false
     @State private var summaryHeight: CGFloat = 250
+    @State private var refreshOrbStyle = ThinkingOrbStyles.next()
     @GestureState private var summaryDrag: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .headline) private var summaryHandleHeight: CGFloat = 76
     @FocusState private var searchFocused: Bool
 
     private var style: GeoMapStyle { GeoMapStyle(rawValue: mapStyleName) ?? .light }
@@ -33,7 +37,8 @@ struct DashboardView: View {
             insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.97, anchor: .bottom)),
             removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
     }
-    private var summaryTravel: CGFloat { max(0, summaryHeight - 64) }
+    private var handleHeight: CGFloat { min(summaryHandleHeight, 112) }
+    private var summaryTravel: CGFloat { max(0, summaryHeight - handleHeight) }
     private var summaryOffset: CGFloat {
         guard selectedRow == nil else { return 0 }
         return min(summaryTravel, max(0, (summaryExpanded ? 0 : summaryTravel) + summaryDrag))
@@ -63,15 +68,22 @@ struct DashboardView: View {
                 .tag(DashboardTab.browse)
         }
         .preferredColorScheme(style.isDark ? .dark : .light)
+        .onChange(of: store.isLoading) { _, isLoading in
+            if isLoading {
+                refreshOrbStyle = ThinkingOrbStyles.next(excluding: refreshOrbStyle)
+            }
+        }
         .task { await store.initialRefresh() }
     }
 
     private var mapPage: some View {
         GeometryReader { geometry in
             let compact = geometry.size.height < 550
+            let selectionHeight = AssessmentCarousel.preferredHeight(availableHeight: geometry.size.height,
+                dynamicTypeSize: dynamicTypeSize, groupCount: selection.count)
             ZStack(alignment: .bottom) {
                 NativeMapView(rows: store.visibleRows, style: style, focus: focus,
-                              bottomInset: selectedRow == nil ? (summaryExpanded ? summaryHeight + 60 : 135) : 295) { rows in
+                              bottomInset: selectedRow == nil ? (summaryExpanded ? summaryHeight + 76 : handleHeight + 76) : selectionHeight + 76) { rows in
                     withAnimation(panelMotion) {
                         selection = rows
                         selectionIndex = 0
@@ -84,6 +96,10 @@ struct DashboardView: View {
 
                 VStack(spacing: 12) {
                     topBar
+                    if store.isLoading {
+                        ThinkingOrbs(style: refreshOrbStyle, label: "Refreshing live road data")
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.92).combined(with: .opacity))
+                    }
                     if isSearchOpen {
                         searchPanel.transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
@@ -92,11 +108,12 @@ struct DashboardView: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 10)
-                .frame(maxWidth: 560)
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+                .frame(maxWidth: 620)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .animation(panelMotion, value: isSearchOpen)
+                .animation(panelMotion, value: store.isLoading)
 
                 if !searchFocused {
                     VStack(spacing: 12) {
@@ -104,8 +121,8 @@ struct DashboardView: View {
                         if store.hasFilters {
                             Button { store.clearFilters() } label: {
                                 Label("Clear filters", systemImage: "xmark.circle.fill")
-                                    .font(.caption.weight(.medium)).padding(12)
-                            }.buttonStyle(.plain).glass(radius: 22)
+                                    .font(.subheadline.weight(.medium)).padding(14)
+                            }.buttonStyle(GeoPressStyle()).glass(radius: 22)
                         }
                         Spacer()
                         RoundControl(symbol: "location", label: "Find my location", busy: location.isLocating) {
@@ -114,20 +131,20 @@ struct DashboardView: View {
                     }
                     ZStack(alignment: .bottom) {
                         if selectedRow != nil {
-                            AssessmentCarousel(rows: selection, index: $selectionIndex,
+                            AssessmentCarousel(rows: selection, index: $selectionIndex, height: selectionHeight,
                                 onOpen: { detail = $0 },
                                 onClose: { withAnimation(panelMotion) { selection = [] } })
                                 .id(selectionPresentationID)
                                 .transition(panelTransition)
                         } else {
-                            summaryPanel(compact: compact)
+                            summaryPanel(compact: compact, availableHeight: geometry.size.height)
                                 .transition(panelTransition)
                         }
                     }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 8)
-                    .frame(maxWidth: 560)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+                    .frame(maxWidth: 620)
                     .frame(maxWidth: .infinity)
                     .offset(y: summaryOffset)
                     .animation(panelMotion, value: selectionPresentationID)
@@ -165,8 +182,8 @@ struct DashboardView: View {
     private var topBar: some View {
         HStack(spacing: 10) {
             Button { sheet = .about } label: {
-                BrandMark(size: 31).padding(.horizontal, 17).frame(height: 52)
-            }.buttonStyle(.plain).glass(radius: 26).accessibilityHint("About GeoAI")
+                BrandMark(size: 35).padding(.horizontal, 19).frame(height: 56)
+            }.buttonStyle(GeoPressStyle()).glass(radius: 28).accessibilityHint("About GeoAI")
             Spacer(minLength: 0)
             RoundControl(symbol: isSearchOpen ? "xmark" : "magnifyingglass", label: isSearchOpen ? "Close search" : "Search places") {
                 isSearchOpen.toggle()
@@ -182,14 +199,14 @@ struct DashboardView: View {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search a city or street", text: $searchText)
-                    .font(.subheadline).focused($searchFocused)
+                    .font(.body).focused($searchFocused)
                     .submitLabel(.search).autocorrectionDisabled()
-                if places.isSearching { ProgressView() }
+                if places.isSearching { ThinkingOrb(size: 28) }
                 else if !searchText.isEmpty {
-                    Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    Button { searchText = "" } label: { Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44) }
                         .foregroundStyle(.secondary).accessibilityLabel("Clear search")
                 }
-            }.padding(16)
+            }.padding(18)
             if !places.results.isEmpty {
                 Divider().padding(.horizontal)
                 ScrollView {
@@ -205,48 +222,53 @@ struct DashboardView: View {
                                 HStack(spacing: 12) {
                                     Image(systemName: "mappin.circle").font(.title3)
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(place.title).font(.subheadline.weight(.medium))
-                                        Text(place.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                        Text(place.title).font(.body.weight(.medium))
+                                        Text(place.subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                                     }
                                     Spacer()
                                     Image(systemName: "arrow.up.left").font(.caption)
-                                }.padding(.horizontal, 16).padding(.vertical, 12).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
+                                }.padding(.horizontal, 18).padding(.vertical, 14).contentShape(Rectangle())
+                            }.buttonStyle(GeoPressStyle())
                         }
                     }
-                }.frame(maxHeight: 220)
+                }.frame(maxHeight: 250)
             } else if let error = places.errorMessage {
-                Text(error).font(.caption).foregroundStyle(.secondary).padding([.horizontal, .bottom])
+                Text(error).font(.subheadline).foregroundStyle(.secondary).padding([.horizontal, .bottom])
             }
         }.glass(radius: 24)
     }
 
-    private func summaryPanel(compact: Bool) -> some View {
+    private func summaryPanel(compact: Bool, availableHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             Button {
                 withAnimation(panelMotion) { summaryExpanded.toggle() }
             } label: {
                 VStack(spacing: 9) {
-                    Capsule().fill(.secondary.opacity(0.4)).frame(width: 32, height: 4)
+                    Capsule().fill(.secondary.opacity(0.35)).frame(width: 38, height: 5)
                     HStack {
-                        RoadDistressIcon(type: "Road", size: 18).foregroundStyle(.secondary)
-                        Text("Road overview").font(.subheadline.weight(.semibold))
+                        RoadDistressIcon(type: "Road", size: 24).foregroundStyle(.secondary)
+                        Text("Road overview").font(.headline).lineLimit(2)
                         Spacer()
                         Image(systemName: "chevron.up")
                             .font(.caption.weight(.semibold))
                             .rotationEffect(.degrees(summaryExpanded ? 180 : 0))
                     }
                 }
-                .padding(.horizontal, 18)
-                .frame(height: 64)
+                .padding(.horizontal, 22)
+                .frame(height: handleHeight)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(summaryExpanded ? "Collapse road overview" : "Expand road overview")
             .accessibilityValue(summaryExpanded ? "Expanded" : "Collapsed")
-            .accessibilityHint("You can also swipe up or down on this card")
+            .accessibilityHint("You can also swipe up or down on this header")
+            .simultaneousGesture(summaryGesture)
 
-            overview(compact: compact)
+            ScrollView {
+                overview(compact: compact)
+            }
+                .frame(maxHeight: max(100, availableHeight * 0.52 - handleHeight))
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityHidden(!summaryExpanded)
                 .allowsHitTesting(summaryExpanded)
         }
@@ -259,8 +281,10 @@ struct DashboardView: View {
         .onPreferenceChange(SummaryHeightKey.self) { height in
             if abs(summaryHeight - height) > 0.5 { summaryHeight = height }
         }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 8)
+    }
+
+    private var summaryGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
                 .updating($summaryDrag) { value, state, transaction in
                     guard abs(value.translation.height) > abs(value.translation.width) else { return }
                     transaction.animation = nil
@@ -271,25 +295,26 @@ struct DashboardView: View {
                     let projected = (summaryExpanded ? 0 : summaryTravel) + value.predictedEndTranslation.height
                     withAnimation(panelMotion) { summaryExpanded = projected < summaryTravel / 2 }
                 }
-        )
     }
 
     private func overview(compact: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if !compact {
+        VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .top) {
+                if !compact {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("A clearer way ahead.")
-                        .font(.system(.title3, design: .rounded, weight: .semibold)).tracking(-0.5)
+                        .font(.system(.title2, design: .rounded, weight: .semibold)).tracking(-0.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 }
                 Spacer(minLength: 4)
                 Button { Task { await store.refresh() } } label: {
                     Group {
-                        if store.isLoading { ProgressView() }
-                        else { Image(systemName: "arrow.clockwise").font(.subheadline) }
-                    }.frame(width: 44, height: 44)
-                }.buttonStyle(.plain).disabled(store.isLoading).accessibilityLabel("Refresh observations")
-            }
+                        if store.isLoading { ThinkingOrb(style: refreshOrbStyle, size: 30) }
+                        else { Image(systemName: "arrow.clockwise").font(.body.weight(.medium)) }
+                    }.frame(width: 48, height: 48)
+                        .background(Color.primary.opacity(0.05), in: Circle())
+                }.buttonStyle(GeoPressStyle()).disabled(store.isLoading).accessibilityLabel("Refresh observations")
             }
             HStack(spacing: 0) {
                 statistic("Visible", value: store.visibleRows.count, color: .primary)
@@ -297,30 +322,48 @@ struct DashboardView: View {
                 statistic("Red alerts", value: store.highCount, color: GeoPalette.severity(.high))
             }
             if store.visibleRows.isEmpty {
-                Text("No observations match these filters.").font(.caption).foregroundStyle(.secondary)
+                Text("No observations match these filters.").font(.subheadline).foregroundStyle(.secondary)
             }
-            HStack(spacing: 6) {
-                Circle().fill(store.source.isLive ? GeoPalette.green : GeoPalette.amber).frame(width: 5, height: 5)
-                Text(store.source.label).font(.system(size: 9, weight: .semibold)).tracking(1)
-                if let date = store.source.date {
-                    Text("·").font(.caption)
-                    Text(date, format: .dateTime.day().month(.abbreviated).year()).font(.system(size: 10))
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    sourceStatus
+                    Spacer(minLength: 0)
+                    browseButton
                 }
-                Spacer(minLength: 0)
-                Button { selectedTab = .browse } label: {
-                    Label("View list", systemImage: "list.bullet").font(.system(size: 10, weight: .medium))
-                }.buttonStyle(.plain)
-            }.foregroundStyle(.secondary)
-        }.padding(.horizontal, 18).padding(.bottom, 18)
+                VStack(alignment: .leading, spacing: 8) {
+                    sourceStatus
+                    browseButton
+                }
+            }
+        }.padding(.horizontal, 22).padding(.bottom, 22)
+    }
+
+    private var sourceStatus: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 7) {
+                Circle().fill(store.source.isLive ? GeoPalette.green : GeoPalette.amber).frame(width: 7, height: 7)
+                Text(store.source.label).font(.caption.weight(.semibold)).tracking(0.7)
+            }
+            if let date = store.source.date {
+                Text(date, format: .dateTime.day().month(.abbreviated).year()).font(.footnote)
+            }
+        }.foregroundStyle(.secondary)
+    }
+
+    private var browseButton: some View {
+        Button { selectedTab = .browse } label: {
+            Label("View list", systemImage: "arrow.up.right")
+                .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+        }.buttonStyle(GeoPressStyle())
     }
 
     private func statistic(_ label: String, value: Int, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(value, format: .number).font(.system(.title2, design: .rounded, weight: .semibold))
+            Text(value, format: .number).font(.system(.largeTitle, design: .rounded, weight: .semibold))
                 .monospacedDigit().foregroundStyle(color)
                 .contentTransition(.numericText())
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: value)
-            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(label).font(.subheadline).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, label == "Visible" ? 0 : 16)
             .accessibilityElement(children: .combine)
     }
@@ -328,10 +371,10 @@ struct DashboardView: View {
     private func messageBanner(_ message: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "info.circle").padding(.top, 2)
-            Text(message).font(.caption).fixedSize(horizontal: false, vertical: true)
+            Text(message).font(.subheadline).fixedSize(horizontal: false, vertical: true)
             Button { store.message = nil; location.errorMessage = nil } label: {
-                Image(systemName: "xmark").padding(5)
-            }.accessibilityLabel("Dismiss message")
+                Image(systemName: "xmark").frame(width: 44, height: 44)
+            }.buttonStyle(GeoPressStyle()).accessibilityLabel("Dismiss message")
         }.foregroundStyle(.primary).padding(14).glass(radius: 20)
     }
 }

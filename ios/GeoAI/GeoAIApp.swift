@@ -8,6 +8,8 @@ struct GeoAIApp: App {
         WindowGroup {
             DashboardView(store: store)
                 .tint(.primary)
+                // Keep the whole experience comfortably legible on modern iPhones.
+                .dynamicTypeSize(.xLarge...)
         }
     }
 }
