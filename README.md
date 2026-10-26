@@ -243,6 +243,24 @@ Capstone Project · **B.M.S. College of Engineering**, Bengaluru · April 2026
 
 ---
 
+## Local regression checks
+
+The static dashboard still runs without a build step. Development checks use
+Node.js 22 or newer and Rust stable:
+
+```sh
+npm ci --ignore-scripts
+npm test
+cargo test --manifest-path tools/import/Cargo.toml
+cargo test --manifest-path tools/snapshot/Cargo.toml
+```
+
+The tests use fixture data and a local HTTP server; they do not upload photos or
+contact production Supabase. On macOS, run `bash ios/Scripts/check-core.sh` and
+`bash ios/Scripts/verify-capture.sh` for the Swift core and mocked capture checks.
+See `mobile/README.md` for Android build and device checks. GitHub Actions runs
+the dashboard, data-tool and Swift checks on pull requests.
+
 ## 📄 License
 
 [MIT](LICENSE) — feel free to fork, learn from, and adapt for your own civic-tech projects.

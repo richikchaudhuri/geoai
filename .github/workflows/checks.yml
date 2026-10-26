@@ -1,0 +1,36 @@
+name: code-checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+
+  data-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --manifest-path tools/import/Cargo.toml
+      - run: cargo test --manifest-path tools/snapshot/Cargo.toml
+
+  ios-core:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash ios/Scripts/check-core.sh
+      - run: bash ios/Scripts/verify-capture.sh

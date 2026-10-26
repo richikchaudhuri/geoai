@@ -278,7 +278,11 @@ L.control.zoom({ position: 'bottomright' }).addTo(map);
 LoadingScreen.setStage(1); // Loading basemap tiles
 
 let currentTileLayer = null;
-let currentStyle = localStorage.getItem('mapStyle') || 'light';
+let currentStyle = 'light';
+try {
+  const savedStyle = localStorage.getItem('mapStyle');
+  if (Object.prototype.hasOwnProperty.call(MAP_STYLES, savedStyle)) currentStyle = savedStyle;
+} catch (_) { /* Storage can be disabled in private or embedded browsers. */ }
 
 function setMapStyle(styleKey) {
   const style = MAP_STYLES[styleKey];
@@ -288,7 +292,7 @@ function setMapStyle(styleKey) {
   currentTileLayer.once('load', () => LoadingScreen.setStage(2));
   currentTileLayer.addTo(map);
   currentStyle = styleKey;
-  localStorage.setItem('mapStyle', styleKey);
+  try { localStorage.setItem('mapStyle', styleKey); } catch (_) {}
   document.body.classList.toggle('chrome-dark', !!style.dark);
   document.querySelectorAll('.settings-option').forEach((el) => {
     el.classList.toggle('active', el.dataset.style === styleKey);
@@ -314,23 +318,37 @@ function setStatus(text, state) {
 let searchHighlight = null;
 let searchMarker = null;
 let searchTimer = null;
-let activeQuery = '';
+let searchRequest = 0;
+let searchController = null;
+
+function cancelSearch() {
+  clearTimeout(searchTimer);
+  searchRequest++;
+  if (searchController) searchController.abort();
+  searchController = null;
+}
 
 async function runSearch(q) {
+  cancelSearch();
+  const request = searchRequest;
   if (!q || q.length < 2) {
     searchResults.classList.remove('open');
     searchResults.innerHTML = '';
     return;
   }
-  activeQuery = q;
+  searchController = new AbortController();
   const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&polygon_geojson=0&q=${encodeURIComponent(q)}`;
   try {
-    const res = await fetch(url, { headers: { 'Accept-Language': navigator.language || 'en' } });
-    if (activeQuery !== q) return;
+    const res = await fetch(url, {
+      headers: { 'Accept-Language': navigator.language || 'en' },
+      signal: searchController.signal,
+    });
+    if (!res.ok) throw new Error(`search HTTP ${res.status}`);
     const data = await res.json();
-    renderResults(data);
+    if (request !== searchRequest) return;
+    renderResults(Array.isArray(data) ? data : []);
   } catch (e) {
-    renderResults([]);
+    if (request === searchRequest) renderResults([]);
   }
 }
 
@@ -361,6 +379,7 @@ function renderResults(items) {
 }
 
 function selectResult(item) {
+  cancelSearch();
   const lat = parseFloat(item.lat);
   const lon = parseFloat(item.lon);
   const bb = item.boundingbox; // [southLat, northLat, westLon, eastLon]
@@ -396,7 +415,7 @@ function selectResult(item) {
     weight: 2,
     fillColor: '#1A1A1C',
     fillOpacity: 1,
-  }).addTo(map).bindTooltip(item.display_name.split(', ')[0], {
+  }).addTo(map).bindTooltip(escapeHTML(item.display_name.split(', ')[0]), {
     direction: 'top',
     offset: [0, -8],
     className: 'search-tooltip',
@@ -411,6 +430,7 @@ function selectResult(item) {
 }
 
 function collapseSearch({ clear = false } = {}) {
+  cancelSearch();
   searchWrap.classList.remove('hint', 'active');
   if (clear) {
     searchInput.value = '';
@@ -451,7 +471,8 @@ searchInput.addEventListener('focus', () => {
 searchInput.addEventListener('input', (e) => {
   const q = e.target.value.trim();
   searchWrap.classList.toggle('has-value', q.length > 0);
-  clearTimeout(searchTimer);
+  cancelSearch();
+  searchResults.classList.remove('open');
   searchTimer = setTimeout(() => runSearch(q), 300);
 });
 
@@ -477,8 +498,7 @@ const settingsOptions = document.getElementById('settingsOptions');
 settingsTrigger.addEventListener('click', (e) => {
   e.stopPropagation();
   settingsWrap.classList.toggle('open');
-  searchWrap.classList.remove('hint', 'active');
-  searchResults.classList.remove('open');
+  collapseSearch();
 });
 
 settingsOptions.addEventListener('click', (e) => {
@@ -492,8 +512,7 @@ settingsOptions.addEventListener('click', (e) => {
 // could race with each other.
 document.addEventListener('click', (e) => {
   if (!searchWrap.contains(e.target)) {
-    searchWrap.classList.remove('hint', 'active');
-    searchResults.classList.remove('open');
+    collapseSearch();
   }
   if (!settingsWrap.contains(e.target)) {
     settingsWrap.classList.remove('open');
@@ -512,10 +531,8 @@ let allMergedRows = [];
 
 /* ---------- Smart caching (saves Supabase reads + Nominatim hits) ---------- */
 
-// Bumped to v3 to bust any locally-cached data that was stored before the
-// day/night filter fix, so users get a fresh fetch and the new logic
-// runs against current data.
-const CACHE_VERSION = 3;
+// Invalidate rows merged before the assessment precedence fixes.
+const CACHE_VERSION = 4;
 const CACHE_KEY = `geoai:dataCache:v${CACHE_VERSION}`;
 const CACHE_TTL_MS = 10 * 60 * 1000;          // 10 min: serve from cache, no network
 const CACHE_HARD_LIMIT_MS = 24 * 60 * 60 * 1000; // 24 h: still usable but always revalidate
@@ -554,7 +571,7 @@ const Cache = {
     return entry && entry.age < CACHE_TTL_MS;
   },
   clear() {
-    localStorage.removeItem(CACHE_KEY);
+    try { localStorage.removeItem(CACHE_KEY); } catch (_) {}
   },
 };
 window.GeoAICache = Cache; // exposed for console debugging
@@ -577,21 +594,45 @@ function colorForTypes(types) {
 }
 
 function effectiveTypes(row) {
-  if (Array.isArray(row.expert_corrected_types) && row.expert_corrected_types.length) {
+  if (row.expert_reviewed && Array.isArray(row.expert_corrected_types)) {
     return row.expert_corrected_types;
   }
   return Array.isArray(row.distress_types) ? row.distress_types : [];
 }
 
 function effectiveSeverity(row) {
-  return row.expert_corrected_severity || row.severity || 'Unknown';
+  return (row.expert_reviewed && row.expert_corrected_severity) || row.severity || 'Unknown';
 }
 
 function effectiveConfidence(row) {
-  if (typeof row.stage2_confidence === 'number' && row.stage2_confidence > 0) {
+  if (typeof row.stage2_confidence === 'number' && Number.isFinite(row.stage2_confidence)) {
     return row.stage2_confidence;
   }
   return row.stage1_confidence || 0;
+}
+
+async function fetchRows(table, columns, limit = 10000) {
+  const rows = [];
+  const seenIds = new Set();
+  // PostgREST can cap a response below the requested range. Advance by the
+  // actual row count so a successful first page never silently truncates data.
+  while (rows.length < limit) {
+    const { data, error } = await sb.from(table).select(columns)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(rows.length, Math.min(rows.length + 999, limit - 1));
+    if (error) throw error;
+    if (!Array.isArray(data)) throw new Error(`Invalid ${table} response`);
+    if (!data.length) break;
+    for (const row of data) {
+      if (row.id == null || seenIds.has(row.id)) {
+        throw new Error(`Inconsistent ${table} pagination`);
+      }
+      seenIds.add(row.id);
+    }
+    rows.push(...data);
+  }
+  return rows;
 }
 
 async function loadAssessments() {
@@ -617,14 +658,6 @@ async function loadAssessments() {
     console.log('[GeoAI] cache stale, revalidating in background');
   }
 
-  if (!sb) {
-    if (!renderedFromCache) {
-      setStatus('Add Supabase anon key', 'error');
-      LoadingScreen.finish();
-    }
-    return;
-  }
-
   if (!renderedFromCache) {
     LoadingScreen.setStage(3);
     setStatus('Loading data…');
@@ -640,26 +673,16 @@ async function loadAssessments() {
     // If Supabase is unreachable (network error, project paused, RLS rejected)
     // we fall through to the static snapshot committed at data/snapshot.json.
     try {
-      const [photosRes, assessRes] = await Promise.all([
-        sb.from('photos')
-          .select('id, latitude, longitude, address, image_url, created_at')
-          .order('created_at', { ascending: false })
-          .limit(10000),
-        sb.from('assessments')
-          .select(`
+      if (!sb) throw new Error('Supabase client unavailable');
+      [photos, assessments] = await Promise.all([
+        fetchRows('photos', 'id, latitude, longitude, address, image_url, created_at'),
+        fetchRows('assessments', `
             id, photo_id, latitude, longitude, address, image_url, status,
             distress_types, severity, stage2_confidence, stage1_confidence,
             description, processed_at, created_at, expert_reviewed,
             expert_corrected_types, expert_corrected_severity
-          `)
-          .order('created_at', { ascending: false })
-          .limit(10000),
+          `),
       ]);
-      if (photosRes.error) console.error('photos query error:', photosRes.error);
-      if (assessRes.error) console.error('assessments query error:', assessRes.error);
-      if (photosRes.error && assessRes.error) throw photosRes.error;
-      photos = photosRes.data || [];
-      assessments = assessRes.error ? [] : (assessRes.data || []);
       // Empty result might mean Supabase auto-paused — fall back to snapshot
       // so the WebGIS shows something on cold opens after long inactivity.
       if (photos.length === 0 && assessments.length === 0) {
@@ -678,24 +701,29 @@ async function loadAssessments() {
     }
 
     console.log(`[GeoAI] data via ${source}: photos=${photos.length}, assessments=${assessments.length}`);
-    if (assessments.length) console.log('[GeoAI] sample assessment:', assessments[0]);
 
     const byPhotoId = new Map();
     const byImageUrl = new Map();
     for (const a of assessments) {
-      if (a.photo_id != null) byPhotoId.set(a.photo_id, a);
-      if (a.image_url) byImageUrl.set(a.image_url, a);
+      // Rows arrive newest first; keep the latest assessment for each photo.
+      if (a.photo_id != null && !byPhotoId.has(a.photo_id)) byPhotoId.set(a.photo_id, a);
+      if (a.image_url && !byImageUrl.has(a.image_url)) byImageUrl.set(a.image_url, a);
     }
 
     const usedAssessmentIds = new Set();
+    const photoIds = new Set(photos.map(p => p.id));
+    const photoUrls = new Set(photos.map(p => p.image_url).filter(Boolean));
     const merged = photos.map((p) => {
-      const a = byPhotoId.get(p.id) || byImageUrl.get(p.image_url);
+      const candidate = byPhotoId.get(p.id) || byImageUrl.get(p.image_url);
+      const a = candidate && !usedAssessmentIds.has(candidate.id) &&
+        (candidate.photo_id == null || candidate.photo_id === p.id) ? candidate : null;
       if (a) {
         usedAssessmentIds.add(a.id);
+        const location = hasCoordinates(a) ? a : p;
         return {
           ...a,
-          latitude: a.latitude ?? p.latitude,
-          longitude: a.longitude ?? p.longitude,
+          latitude: location.latitude,
+          longitude: location.longitude,
           address: a.address || p.address,
           image_url: a.image_url || p.image_url,
           created_at: p.created_at,
@@ -718,6 +746,7 @@ async function loadAssessments() {
 
     for (const a of assessments) {
       if (usedAssessmentIds.has(a.id)) continue;
+      if (photoIds.has(a.photo_id) || (a.photo_id == null && a.image_url && photoUrls.has(a.image_url))) continue;
       if (a.latitude == null || a.longitude == null) continue;
       merged.push(a);
     }
@@ -734,10 +763,7 @@ async function loadAssessments() {
 
     if (renderedFromCache) {
       // Background revalidate — only re-render if the data actually changed
-      const oldCount = allMergedRows.length;
-      const sameLength = oldCount === merged.length;
-      const sameClassified = sameLength && classified === allMergedRows.filter(r => Array.isArray(r.distress_types) && r.distress_types.length).length;
-      if (!sameClassified) {
+      if (JSON.stringify(allMergedRows) !== JSON.stringify(merged)) {
         allMergedRows = merged;
         renderAssessments(merged);
         setStatus(`${merged.length.toLocaleString()} assessments · refreshed`, 'live');
@@ -766,7 +792,7 @@ async function loadAssessments() {
 // Approximate sun-elevation calculation based on date + lat/lng.
 // Returns true = daytime (sun above horizon), false = night, null if unknown.
 function isDaytime(timestampLike, lat, lng) {
-  if (!timestampLike || lat == null || lng == null) return null;
+  if (!timestampLike || !hasCoordinates({ latitude: lat, longitude: lng })) return null;
   const d = new Date(timestampLike);
   if (isNaN(d.getTime())) return null;
 
@@ -792,10 +818,15 @@ function isDaytime(timestampLike, lat, lng) {
   if (cosH > 1)  return false;  // polar night
 
   const hourAngleHours = (Math.acos(cosH) * 12) / Math.PI;
-  const sunriseUTC = 12 - lng / 15 - hourAngleHours;
-  const sunsetUTC  = 12 - lng / 15 + hourAngleHours;
   const utcHourFrac = d.getUTCHours() + d.getUTCMinutes() / 60;
-  return utcHourFrac >= sunriseUTC && utcHourFrac <= sunsetUTC;
+  // Solar noon can fall across UTC midnight near the date line.
+  const solarHour = ((utcHourFrac + lng / 15) % 24 + 24) % 24;
+  return Math.abs(solarHour - 12) <= hourAngleHours;
+}
+
+function hasCoordinates(row) {
+  return Number.isFinite(row.latitude) && Math.abs(row.latitude) <= 90 &&
+    Number.isFinite(row.longitude) && Math.abs(row.longitude) <= 180;
 }
 
 function rowIsDaytime(row) {
@@ -829,14 +860,14 @@ function clusterRows(rows) {
   // Clustering disabled — every row is its own marker
   if (CLUSTER_RADIUS_M <= 0) {
     return rows
-      .filter(r => r.latitude != null && r.longitude != null)
+      .filter(hasCoordinates)
       .map(r => [r]);
   }
 
   const groups = new Map();
   const latStep = CLUSTER_RADIUS_M / 111320;
   for (const row of rows) {
-    if (row.latitude == null || row.longitude == null) continue;
+    if (!hasCoordinates(row)) continue;
     const cosLat = Math.cos((row.latitude * Math.PI) / 180);
     const lngStep = CLUSTER_RADIUS_M / (111320 * Math.max(0.01, cosLat));
     const latCell = Math.round(row.latitude / latStep);
@@ -904,7 +935,10 @@ function setSeverityFilter(level) {
     if (mapNav) mapNav.classList.add('active');
   } else {
     severityPill.classList.remove('show');
-    setTimeout(() => { severityPill.hidden = true; positionSeverityPill(); }, 350);
+    setTimeout(() => {
+      if (!activeSeverityFilter) severityPill.hidden = true;
+      positionSeverityPill();
+    }, 350);
     // Mirror to the severity card UI if it's open
     if (typeof setSeverityActive === 'function') setSeverityActive(null);
   }
@@ -921,6 +955,7 @@ severityPillClose.addEventListener('click', (e) => {
 window.addEventListener('resize', positionSeverityPill);
 
 function renderAssessments(rows) {
+  hideCards();
   assessmentLayer.clearLayers();
 
   // Apply persistent severity filter
@@ -1085,6 +1120,7 @@ const MAX_VISIBLE_CARDS = 3;
 let activeCards = [];
 let selectedLatLng = null;
 let currentClusterRows = null;
+let cardGeneration = 0;
 
 function formatDate(iso) {
   if (!iso) return '—';
@@ -1246,6 +1282,7 @@ function buildExpandedHTML(row) {
 }
 
 function showExpandedCard(row) {
+  const generation = ++cardGeneration;
   // Fade out existing cards
   cardConnectors.classList.remove('active');
   for (const { el } of activeCards) {
@@ -1257,6 +1294,7 @@ function showExpandedCard(row) {
 
   setTimeout(() => {
     for (const { el } of closing) el.remove();
+    if (generation !== cardGeneration) return;
     while (cardConnectors.firstChild) cardConnectors.removeChild(cardConnectors.firstChild);
 
     const card = document.createElement('aside');
@@ -1283,9 +1321,11 @@ function showExpandedCard(row) {
     void cardStack.offsetWidth;
 
     requestAnimationFrame(() => {
+      if (generation !== cardGeneration) return;
       card.classList.add('open');
 
       setTimeout(() => {
+        if (generation !== cardGeneration) return;
         card.innerHTML = buildExpandedHTML(row);
         card.querySelector('.detail-close').addEventListener('click', hideCards);
         card.classList.remove('loading');
@@ -1330,10 +1370,12 @@ function positionExpandedCard(card) {
 }
 
 function triggerRadarPulse(point) {
+  const generation = cardGeneration;
   const NS = 'http://www.w3.org/2000/svg';
   cardConnectors.classList.add('active');
   for (let i = 0; i < 3; i++) {
     setTimeout(() => {
+      if (generation !== cardGeneration) return;
       const ring = document.createElementNS(NS, 'circle');
       ring.setAttribute('cx', point.x);
       ring.setAttribute('cy', point.y);
@@ -1411,6 +1453,7 @@ function computeCircleAngles(n) {
 
 function showCards(rows) {
   hideCards();
+  const generation = cardGeneration;
   if (!rows.length) return;
 
   // Any marker/location click closes the About panel and resets nav to Map
@@ -1464,12 +1507,16 @@ function showCards(rows) {
   positionAllCards();
   void cardStack.offsetWidth;
   requestAnimationFrame(() => {
+    if (generation !== cardGeneration) return;
     cardConnectors.classList.add('active');
     activeCards.forEach(({ el, kind }, i) => {
-      setTimeout(() => el.classList.add('open'), i * 80);
+      setTimeout(() => {
+        if (generation === cardGeneration) el.classList.add('open');
+      }, i * 80);
       // After 2s, reveal full card content from loading pill
       if (kind === 'card') {
         setTimeout(() => {
+          if (generation !== cardGeneration) return;
           el.classList.remove('loading');
           requestAnimationFrame(() => positionAllCards());
         }, 2000 + i * 80);
@@ -1529,21 +1576,20 @@ function buildListElement(rows) {
     const item = document.createElement('button');
     item.className = 'list-row';
     item.innerHTML = `
-      <img class="list-thumb" alt="" src="${row.image_url || ''}" />
+      <img class="list-thumb" alt="" src="${escapeHTML(row.image_url || '')}" />
       <div class="list-text">
         <div class="list-row-top">
-          <span class="severity-badge" data-severity="${severity}">${severity}</span>
-          ${types.length ? types.map(t => `<span class="list-type" style="background:${DISTRESS_COLORS[t] || UNKNOWN_COLOR}">${t.split(' (')[0]}</span>`).join('') : '<span class="list-type" style="background:'+UNKNOWN_COLOR+'">Normal</span>'}
+          <span class="severity-badge" data-severity="${escapeHTML(severity)}">${escapeHTML(severity)}</span>
+          ${types.length ? types.map(t => `<span class="list-type" style="background:${DISTRESS_COLORS[t] || UNKNOWN_COLOR}">${escapeHTML(t.split(' (')[0])}</span>`).join('') : '<span class="list-type" style="background:'+UNKNOWN_COLOR+'">Normal</span>'}
         </div>
         <div class="list-row-bot">
-          <span class="list-addr">${row.address || 'No address'}</span>
+          <span class="list-addr">${escapeHTML(row.address || 'No address')}</span>
           ${conf ? `<span class="list-conf">${Math.round(conf * 100)}%</span>` : ''}
         </div>
       </div>
     `;
     item.addEventListener('click', () => {
-      hideCards();
-      setTimeout(() => showCards([row]), 50);
+      showCards([row]);
     });
     rowsContainer.appendChild(item);
   });
@@ -1554,6 +1600,7 @@ function buildListElement(rows) {
 }
 
 function showListView(rows) {
+  const generation = ++cardGeneration;
   cardConnectors.classList.remove('active');
   for (const { el } of activeCards) {
     el.classList.remove('open');
@@ -1564,6 +1611,7 @@ function showListView(rows) {
 
   setTimeout(() => {
     for (const { el } of closing) el.remove();
+    if (generation !== cardGeneration) return;
     while (cardConnectors.firstChild) cardConnectors.removeChild(cardConnectors.firstChild);
 
     const list = buildListElement(rows);
@@ -1573,6 +1621,7 @@ function showListView(rows) {
     positionAllCards();
     void cardStack.offsetWidth;
     requestAnimationFrame(() => {
+      if (generation !== cardGeneration) return;
       cardConnectors.classList.add('active');
       list.classList.add('open');
     });
@@ -1580,14 +1629,16 @@ function showListView(rows) {
 }
 
 function hideCards() {
+  const generation = ++cardGeneration;
+  selectedLatLng = null;
+  currentClusterRows = null;
+  cardConnectors.classList.remove('active');
   if (!activeCards.length) {
     while (cardConnectors.firstChild) cardConnectors.removeChild(cardConnectors.firstChild);
     return;
   }
-  cardConnectors.classList.remove('active');
   const closing = activeCards;
   activeCards = [];
-  selectedLatLng = null;
   for (const { el } of closing) {
     el.classList.remove('open');
     // Stop watching this card's size — without this, removed cards keep
@@ -1596,6 +1647,7 @@ function hideCards() {
   }
   setTimeout(() => {
     for (const { el } of closing) el.remove();
+    if (generation !== cardGeneration) return;
     // Clear connector lines AND any in-flight radar rings so old animations
     // don't carry over to the next selection.
     while (cardConnectors.firstChild) cardConnectors.removeChild(cardConnectors.firstChild);
@@ -1785,7 +1837,7 @@ function showFilterIssues() {
   // Aggregate every upload by address (no classification filter — count all rows)
   const byAddress = new Map();
   for (const row of allMergedRows) {
-    if (row.latitude == null || row.longitude == null) continue;
+    if (!hasCoordinates(row)) continue;
     const addr = row.address || fmtCoords(row, 4);
     if (!byAddress.has(addr)) {
       byAddress.set(addr, { count: 0, rows: [], lat: row.latitude, lng: row.longitude });
@@ -1864,11 +1916,11 @@ function showSeverityLocations(level) {
   if (level === 'all') {
     title = 'All locations';
     filtered = [...allMergedRows]
-      .filter(r => r.latitude != null && r.longitude != null)
+      .filter(hasCoordinates)
       .sort((a, b) => (SEV_RANK[effectiveSeverity(b)] || 0) - (SEV_RANK[effectiveSeverity(a)] || 0));
   } else {
     title = `${LABELS[level]} severity`;
-    filtered = allMergedRows.filter(r => effectiveSeverity(r) === level && r.latitude != null && r.longitude != null);
+    filtered = allMergedRows.filter(r => effectiveSeverity(r) === level && hasCoordinates(r));
   }
 
   filterLocationsTitle.textContent = title;
@@ -1906,7 +1958,7 @@ function showSeverityLocations(level) {
 function goToLocationFromFilter(rows, severityFilter = null) {
   if (!rows || !rows.length) return;
   const first = rows[0];
-  if (first.latitude == null || first.longitude == null) return;
+  if (!hasCoordinates(first)) return;
 
   // Find the cluster of rows at this location (matches what a cluster marker click would do)
   const latStep = CLUSTER_RADIUS_M / 111320;
@@ -1916,7 +1968,7 @@ function goToLocationFromFilter(rows, severityFilter = null) {
   const targetLngCell = Math.round(first.longitude / lngStep);
 
   let groupRows = allMergedRows.filter(r => {
-    if (r.latitude == null || r.longitude == null) return false;
+    if (!hasCoordinates(r)) return false;
     return Math.round(r.latitude / latStep) === targetLatCell &&
            Math.round(r.longitude / lngStep) === targetLngCell;
   });
@@ -1976,7 +2028,10 @@ function setTimeFilter(level) {
     if (mapNav) mapNav.classList.add('active');
   } else {
     timePill.classList.remove('show');
-    setTimeout(() => { timePill.hidden = true; positionSeverityPill(); }, 350);
+    setTimeout(() => {
+      if (!activeTimeFilter) timePill.hidden = true;
+      positionSeverityPill();
+    }, 350);
     filterTime.querySelectorAll('.filter-option').forEach(b => b.classList.remove('active'));
   }
   renderAssessments(allMergedRows);
