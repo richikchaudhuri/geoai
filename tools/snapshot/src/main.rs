@@ -15,7 +15,7 @@
 //!
 //! `--both` writes both formats side-by-side.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -148,24 +148,70 @@ async fn fetch_table(
     select: &str,
     limit: usize,
 ) -> Result<Vec<Row>> {
-    let url = format!(
-        "{SUPABASE_URL}/rest/v1/{table}?select={select}&order=created_at.desc&limit={limit}"
+    fetch_table_from(client, SUPABASE_URL, table, select, limit).await
+}
+
+async fn fetch_table_from(
+    client: &reqwest::Client,
+    base_url: &str,
+    table: &str,
+    select: &str,
+    limit: usize,
+) -> Result<Vec<Row>> {
+    let mut rows = Vec::new();
+    let mut seen_ids = HashSet::new();
+    while rows.len() < limit {
+        let offset = rows.len();
+        let page_limit = (limit - offset).min(1000);
+        let url = format!(
+        "{base_url}/rest/v1/{table}?select={select}&order=created_at.desc,id.desc&limit={page_limit}&offset={offset}"
     );
-    let resp = client
-        .get(&url)
-        .header("apikey", SUPABASE_ANON_KEY)
-        .header("Authorization", format!("Bearer {SUPABASE_ANON_KEY}"))
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .with_context(|| format!("GET {table}"))?;
-    let status = resp.status();
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("{table} status {status}: {body}"));
+        let resp = client
+            .get(&url)
+            .header("apikey", SUPABASE_ANON_KEY)
+            .header("Authorization", format!("Bearer {SUPABASE_ANON_KEY}"))
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .with_context(|| format!("GET {table}"))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("{table} status {status}: {body}"));
+        }
+        let page: Vec<Row> = resp.json().await.context("parse JSON")?;
+        if page.is_empty() {
+            break;
+        }
+        for row in &page {
+            let id = row
+                .get("id")
+                .and_then(row_id)
+                .ok_or_else(|| anyhow!("{table} row has no ID"))?;
+            if !seen_ids.insert(id) {
+                return Err(anyhow!(
+                    "{table} pagination repeated a row; retry the snapshot"
+                ));
+            }
+        }
+        rows.extend(page);
     }
-    let rows: Vec<Row> = resp.json().await.context("parse JSON")?;
     Ok(rows)
+}
+
+fn row_id(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(id) => Some(id.clone()),
+        serde_json::Value::Number(id) => Some(id.to_string()),
+        _ => None,
+    }
+}
+
+fn coordinates(row: &Row) -> Option<(f64, f64)> {
+    let lat = row.get("latitude")?.as_f64()?;
+    let lng = row.get("longitude")?.as_f64()?;
+    (lat.is_finite() && lng.is_finite() && lat.abs() <= 90.0 && lng.abs() <= 180.0)
+        .then_some((lat, lng))
 }
 
 // ---------- JSON writers ---------------------------------------------------
@@ -204,20 +250,18 @@ fn write_geojson_shape(
     let mut by_photo_id: HashMap<String, &Row> = HashMap::new();
     let mut by_image_url: HashMap<String, &Row> = HashMap::new();
     for a in assessments {
-        if let Some(pid) = a.get("photo_id").and_then(|v| v.as_str()) {
-            by_photo_id.insert(pid.to_string(), a);
+        if let Some(pid) = a.get("photo_id").and_then(row_id) {
+            by_photo_id.entry(pid).or_insert(a);
         }
         if let Some(url) = a.get("image_url").and_then(|v| v.as_str()) {
-            by_image_url.insert(url.to_string(), a);
+            by_image_url.entry(url.to_string()).or_insert(a);
         }
     }
 
+    let mut used_assessments = HashSet::new();
     let features: Vec<serde_json::Value> = photos
         .iter()
         .map(|p| {
-            let lat = p.get("latitude").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let lng = p.get("longitude").and_then(|v| v.as_f64()).unwrap_or(0.0);
-
             // Start with the photo's columns, then overlay the assessment's.
             // Rename photo.id → photo_id first to avoid collision with assessment.id.
             let mut props = p.clone();
@@ -226,40 +270,50 @@ fn write_geojson_shape(
             }
 
             let matched: Option<&Row> = p
-                .get("photo_id")
-                .and_then(|v| v.as_str())
-                .and_then(|pid| by_photo_id.get(pid).copied())
+                .get("id")
+                .and_then(row_id)
+                .and_then(|pid| by_photo_id.get(&pid).copied())
                 .or_else(|| {
                     p.get("image_url")
                         .and_then(|v| v.as_str())
                         .and_then(|u| by_image_url.get(u).copied())
                 })
-                .or_else(|| {
-                    props
-                        .get("photo_id")
-                        .and_then(|v| v.as_str())
-                        .and_then(|pid| by_photo_id.get(pid).copied())
+                .filter(|a| {
+                    let pid = a.get("photo_id").and_then(row_id);
+                    (pid.is_none() || pid == p.get("id").and_then(row_id))
+                        && a.get("id")
+                            .and_then(row_id)
+                            .is_none_or(|id| !used_assessments.contains(&id))
                 });
 
             if let Some(a) = matched {
+                if let Some(id) = a.get("id").and_then(row_id) {
+                    used_assessments.insert(id);
+                }
                 for (k, v) in a.iter() {
                     // GeoJSON spec: each Feature has a unique top-level id;
                     // we keep the assessment's id as `assessment_id` and
                     // let the photo_id we already inserted stand.
                     if k == "id" {
                         props.insert("assessment_id".to_string(), v.clone());
-                    } else {
+                    } else if k != "photo_id" && k != "created_at" && !v.is_null() {
                         props.insert(k.clone(), v.clone());
                     }
                 }
             }
 
+            // Missing GPS is unknown, not a fabricated point at (0, 0).
+            let geometry = match matched.and_then(coordinates).or_else(|| coordinates(p)) {
+                Some((lat, lng)) => {
+                    props.insert("latitude".to_string(), json!(lat));
+                    props.insert("longitude".to_string(), json!(lng));
+                    json!({"type": "Point", "coordinates": [lng, lat]})
+                }
+                _ => serde_json::Value::Null,
+            };
             json!({
                 "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [lng, lat]   // GeoJSON spec: [lng, lat]
-                },
+                "geometry": geometry,
                 "properties": props
             })
         })
@@ -341,7 +395,11 @@ fn iso8601_now() -> String {
 /// https://howardhinnant.github.io/date_algorithms.html
 fn days_to_ymd(days: i64) -> (i64, u32, u32) {
     let z = days + 719468;
-    let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
+    let era = if z >= 0 {
+        z / 146097
+    } else {
+        (z - 146096) / 146097
+    };
     let doe = (z - era * 146097) as u64; // [0, 146096]
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
     let y_base = (yoe as i64) + era * 400;
@@ -351,4 +409,140 @@ fn days_to_ymd(days: i64) -> (i64, u32, u32) {
     let m_civ = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
     let y = if m_civ <= 2 { y_base + 1 } else { y_base };
     (y, m_civ as u32, d as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+
+    fn row(value: serde_json::Value) -> Row {
+        value.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn geojson_matches_numeric_photo_ids_and_keeps_latest_assessment() {
+        let path = std::env::temp_dir().join(format!("geoai-snapshot-{}.json", std::process::id()));
+        let photos = vec![row(
+            json!({"id": 7, "image_url": "photo", "latitude": 12.0, "longitude": 77.0, "created_at": "capture"}),
+        )];
+        let assessments = vec![
+            row(
+                json!({"id": "latest", "photo_id": 7, "image_url": "changed-url", "severity": "Low", "latitude": null, "created_at": "processed"}),
+            ),
+            row(json!({"id": "old", "photo_id": 7, "image_url": "photo", "severity": "High"})),
+        ];
+        write_geojson_shape(&path, &photos, &assessments, "now", false).unwrap();
+        let data: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        std::fs::remove_file(path).unwrap();
+        let feature = &data["features"][0];
+        assert_eq!(feature["properties"]["assessment_id"], "latest");
+        assert_eq!(feature["properties"]["photo_id"], 7);
+        assert_eq!(feature["properties"]["created_at"], "capture");
+        assert_eq!(feature["geometry"]["coordinates"], json!([77.0, 12.0]));
+    }
+
+    #[test]
+    fn geojson_keeps_missing_coordinates_unknown_and_zero_coordinates_valid() {
+        let path =
+            std::env::temp_dir().join(format!("geoai-coordinates-{}.json", std::process::id()));
+        let photos = vec![
+            row(json!({"id": 1})),
+            row(json!({"id": 2, "latitude": 0.0, "longitude": 0.0})),
+            row(json!({"id": 3, "latitude": 100.0, "longitude": 2.0})),
+        ];
+        write_geojson_shape(&path, &photos, &[], "now", false).unwrap();
+        let data: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert!(data["features"][0]["geometry"].is_null());
+        assert_eq!(
+            data["features"][1]["geometry"]["coordinates"],
+            json!([0.0, 0.0])
+        );
+        assert!(data["features"][2]["geometry"].is_null());
+    }
+
+    #[tokio::test]
+    async fn fetch_reads_all_server_capped_pages_in_stable_order() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for offset in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                while !request.windows(4).any(|b| b == b"\r\n\r\n") {
+                    let n = stream.read(&mut buffer).unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buffer[..n]);
+                }
+                let request = String::from_utf8(request).unwrap();
+                assert!(request.contains(&format!("offset={offset}")));
+                assert!(request.contains("order=created_at.desc,id.desc"));
+                let body = if offset < 2 {
+                    format!("[{{\"id\":{offset}}}]")
+                } else {
+                    "[]".to_string()
+                };
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+            }
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap();
+        let rows = fetch_table_from(&client, &base, "photos", "id", 10)
+            .await
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn shared_urls_cannot_reuse_or_reassign_assessments() {
+        for linked in [true, false] {
+            let path = std::env::temp_dir()
+                .join(format!("geoai-shared-{}-{linked}.json", std::process::id()));
+            let photos = vec![
+                row(json!({"id": 7, "image_url": "shared"})),
+                row(json!({"id": 8, "image_url": "shared"})),
+            ];
+            let a = row(
+                json!({"id": "a", "photo_id": if linked { json!(7) } else { json!(null) }, "image_url": "shared"}),
+            );
+            write_geojson_shape(&path, &photos, &[a], "now", false).unwrap();
+            let data: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            std::fs::remove_file(path).unwrap();
+            assert_eq!(data["features"][0]["properties"]["assessment_id"], "a");
+            assert!(data["features"][1]["properties"]
+                .get("assessment_id")
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn bad_assessment_gps_preserves_the_valid_photo_coordinate_pair() {
+        let path =
+            std::env::temp_dir().join(format!("geoai-gps-fallback-{}.json", std::process::id()));
+        let photos = vec![row(json!({"id": 7, "latitude": 12.0, "longitude": 77.0}))];
+        let assessments = vec![row(
+            json!({"id": "a", "photo_id": 7, "latitude": 999.0, "longitude": 80.0}),
+        )];
+        write_geojson_shape(&path, &photos, &assessments, "now", false).unwrap();
+        let data: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(
+            data["features"][0]["geometry"]["coordinates"],
+            json!([77.0, 12.0])
+        );
+        assert_eq!(data["features"][0]["properties"]["latitude"], 12.0);
+    }
 }

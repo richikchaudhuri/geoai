@@ -158,25 +158,21 @@ impl StateFile {
                 ..Self::default()
             });
         }
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("read {}", path.display()))?;
-        // Tolerate junk state — if the file is corrupt we just start fresh.
-        match serde_json::from_str::<Self>(&text) {
-            Ok(s) => Ok(s),
-            Err(e) => {
-                eprintln!(
-                    "WARN: state file {} unreadable ({e}); starting fresh",
-                    path.display()
-                );
-                Ok(Self {
-                    version: STATE_FILE_VERSION.to_string(),
-                    ..Self::default()
-                })
-            }
-        }
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        // Silently forgetting dedup state can upload the entire collection again.
+        serde_json::from_str::<Self>(&text).with_context(|| {
+            format!(
+                "invalid state {}; restore it or explicitly use --no-resume",
+                path.display()
+            )
+        })
     }
 
     fn save_atomic(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
         let tmp = path.with_extension("json.tmp");
         let text = serde_json::to_string_pretty(self)?;
         std::fs::write(&tmp, text)?;
@@ -249,6 +245,15 @@ async fn main() -> Result<()> {
     if !args.dir.is_dir() {
         return Err(anyhow!("not a directory: {}", args.dir.display()));
     }
+    match (args.default_lat, args.default_lng) {
+        (Some(lat), Some(lng)) => validate_coordinates(lat, lng)?,
+        (None, None) => {}
+        _ => {
+            return Err(anyhow!(
+                "--default-lat and --default-lng must be supplied together"
+            ))
+        }
+    }
 
     // Load state file (or fresh empty one if --no-resume).
     let mut state = if args.no_resume {
@@ -281,11 +286,12 @@ async fn main() -> Result<()> {
     let mut records: Vec<ImageRecord> = Vec::with_capacity(files.len());
     let mut skipped_dedup = 0usize;
     let mut skipped_no_gps = 0usize;
+    let mut seen_hashes = HashSet::new();
 
     for path in &files {
         bar1.set_message(short_name(path));
         let sha = sha256_file(path)?;
-        if state.has_upload(&sha) {
+        if state.has_upload(&sha) || !seen_hashes.insert(sha.clone()) {
             skipped_dedup += 1;
             bar1.inc(1);
             continue;
@@ -353,7 +359,14 @@ async fn main() -> Result<()> {
     }
 
     // ----- Stage 3: parallel uploads with retry -------------------------
-    println!("Stage 3: uploading (concurrency={}, retries={})", args.concurrency, args.retries);
+    // Fail before any remote writes when the resume journal cannot be saved.
+    state
+        .save_atomic(&args.state_file)
+        .context("preparing resume state")?;
+    println!(
+        "Stage 3: uploading (concurrency={}, retries={})",
+        args.concurrency, args.retries
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
         .user_agent(concat!("geoai-import/", env!("CARGO_PKG_VERSION")))
@@ -361,10 +374,8 @@ async fn main() -> Result<()> {
 
     let bar = ProgressBar::new(records.len() as u64);
     bar.set_style(
-        ProgressStyle::with_template(
-            "{elapsed_precise} [{bar:30.cyan/blue}] {pos}/{len}  {msg}",
-        )?
-        .progress_chars("=> "),
+        ProgressStyle::with_template("{elapsed_precise} [{bar:30.cyan/blue}] {pos}/{len}  {msg}")?
+            .progress_chars("=> "),
     );
 
     let started = Instant::now();
@@ -402,11 +413,13 @@ async fn main() -> Result<()> {
     }
     bar.finish();
 
+    state
+        .save_atomic(&args.state_file)
+        .context("saving final resume state")?;
+
     let elapsed = started.elapsed().as_secs_f64();
     let rate = ok as f64 / elapsed.max(0.001);
-    println!(
-        "\n✓ {ok} imported · ✗ {fail} failed · {elapsed:.1}s wall  ({rate:.1}/s)"
-    );
+    println!("\n✓ {ok} imported · ✗ {fail} failed · {elapsed:.1}s wall  ({rate:.1}/s)");
 
     if fail > 0 {
         std::process::exit(1);
@@ -418,7 +431,8 @@ async fn main() -> Result<()> {
 
 fn collect_images(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
-    for entry in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(dir) {
+        let entry = entry.context("walking image directory")?;
         if !entry.file_type().is_file() {
             continue;
         }
@@ -436,11 +450,9 @@ fn collect_images(dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn sha256_file(path: &Path) -> Result<String> {
-    let mut file = std::fs::File::open(path)
-        .with_context(|| format!("open {}", path.display()))?;
+    let mut file = std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)
-        .with_context(|| format!("hash {}", path.display()))?;
+    std::io::copy(&mut file, &mut hasher).with_context(|| format!("hash {}", path.display()))?;
     let digest = hasher.finalize();
     Ok(hex_lower(&digest))
 }
@@ -474,14 +486,17 @@ fn extract_record(
         });
     }
     match (def_lat, def_lng) {
-        (Some(lat), Some(lng)) => Ok(ImageRecord {
-            path: path.to_path_buf(),
-            sha256,
-            lat,
-            lng,
-            gps_source: GpsSource::Default,
-            address: String::new(),
-        }),
+        (Some(lat), Some(lng)) => {
+            validate_coordinates(lat, lng)?;
+            Ok(ImageRecord {
+                path: path.to_path_buf(),
+                sha256,
+                lat,
+                lng,
+                gps_source: GpsSource::Default,
+                address: String::new(),
+            })
+        }
         _ => Err(anyhow!("no EXIF GPS and no --default-lat / --default-lng")),
     }
 }
@@ -489,8 +504,7 @@ fn extract_record(
 fn read_exif_gps(path: &Path) -> Result<Option<(f64, f64)>> {
     use exif::{In, Reader, Tag};
 
-    let file = std::fs::File::open(path)
-        .with_context(|| format!("open {}", path.display()))?;
+    let file = std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mut buf = std::io::BufReader::new(&file);
     let reader = match Reader::new().read_from_container(&mut buf) {
         Ok(r) => r,
@@ -506,36 +520,46 @@ fn read_exif_gps(path: &Path) -> Result<Option<(f64, f64)>> {
         (Some(la), Some(lar), Some(ln), Some(lnr)) => {
             let lat = parse_dms(&la.value)?;
             let lng = parse_dms(&ln.value)?;
-            let lat_sign = if dir_char(&lar.value).eq_ignore_ascii_case("S") {
-                -1.0
-            } else {
-                1.0
+            let lat_sign = match dir_char(&lar.value).to_ascii_uppercase().as_str() {
+                "S" => -1.0,
+                "N" => 1.0,
+                _ => return Err(anyhow!("invalid GPS latitude reference")),
             };
-            let lng_sign = if dir_char(&lnr.value).eq_ignore_ascii_case("W") {
-                -1.0
-            } else {
-                1.0
+            let lng_sign = match dir_char(&lnr.value).to_ascii_uppercase().as_str() {
+                "W" => -1.0,
+                "E" => 1.0,
+                _ => return Err(anyhow!("invalid GPS longitude reference")),
             };
             (lat * lat_sign, lng * lng_sign)
         }
         _ => return Ok(None),
     };
+    validate_coordinates(lat, lng)?;
     Ok(Some((lat, lng)))
+}
+
+fn validate_coordinates(lat: f64, lng: f64) -> Result<()> {
+    if !lat.is_finite() || !lng.is_finite() || lat.abs() > 90.0 || lng.abs() > 180.0 {
+        return Err(anyhow!(
+            "GPS coordinates must be finite and within latitude ±90 / longitude ±180"
+        ));
+    }
+    Ok(())
 }
 
 fn parse_dms(v: &exif::Value) -> Result<f64> {
     if let exif::Value::Rational(rats) = v {
         if rats.len() >= 3 {
-            let to_f64 = |r: &exif::Rational| -> f64 {
-                if r.denom == 0 {
-                    0.0
-                } else {
-                    r.num as f64 / r.denom as f64
-                }
-            };
+            if rats[..3].iter().any(|r| r.denom == 0) {
+                return Err(anyhow!("zero denominator in GPS DMS triple"));
+            }
+            let to_f64 = |r: &exif::Rational| r.num as f64 / r.denom as f64;
             let d = to_f64(&rats[0]);
             let m = to_f64(&rats[1]);
             let s = to_f64(&rats[2]);
+            if m >= 60.0 || s >= 60.0 {
+                return Err(anyhow!("invalid GPS minutes or seconds"));
+            }
             return Ok(d + m / 60.0 + s / 3600.0);
         }
     }
@@ -643,9 +667,8 @@ fn round_key(lat: f64, lng: f64) -> String {
 }
 
 async fn geocode_one(client: &reqwest::Client, lat: f64, lng: f64) -> Result<String> {
-    let url = format!(
-        "{NOMINATIM_URL}?lat={lat:.6}&lon={lng:.6}&format=json&zoom=18&addressdetails=0"
-    );
+    let url =
+        format!("{NOMINATIM_URL}?lat={lat:.6}&lon={lng:.6}&format=json&zoom=18&addressdetails=0");
     let resp = client
         .get(&url)
         .send()
@@ -742,7 +765,18 @@ async fn cloudinary_upload(
         .to_owned();
     let part = reqwest::multipart::Part::bytes(bytes.to_vec())
         .file_name(file_name)
-        .mime_str("image/jpeg")
+        .mime_str(
+            if rec
+                .path
+                .extension()
+                .and_then(|s| s.to_str())
+                .is_some_and(|s| s.eq_ignore_ascii_case("png"))
+            {
+                "image/png"
+            } else {
+                "image/jpeg"
+            },
+        )
         .map_err(|e| fatal(format!("mime: {e}")))?;
     let form = reqwest::multipart::Form::new()
         .part("file", part)
@@ -822,8 +856,74 @@ fn short_addr(addr: &str) -> String {
 }
 
 fn spinner_style() -> Result<ProgressStyle> {
-    Ok(ProgressStyle::with_template(
-        "{elapsed_precise} [{bar:30.cyan/blue}] {pos}/{len}  {msg}",
-    )?
-    .progress_chars("=> "))
+    Ok(
+        ProgressStyle::with_template("{elapsed_precise} [{bar:30.cyan/blue}] {pos}/{len}  {msg}")?
+            .progress_chars("=> "),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn corrupt_resume_state_fails_instead_of_silently_reuploading() {
+        let path =
+            std::env::temp_dir().join(format!("geoai-bad-state-{}.json", std::process::id()));
+        std::fs::write(&path, "{truncated").unwrap();
+        assert!(StateFile::load(&path).is_err());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn state_save_creates_missing_parent_and_round_trips_uploads() {
+        let dir = std::env::temp_dir().join(format!("geoai-state-{}", std::process::id()));
+        let path = dir.join("nested/state.json");
+        let mut state = StateFile::default();
+        state.record_upload(
+            "hash",
+            Path::new("photo.jpg"),
+            "https://example.com/photo.jpg",
+            0.0,
+            0.0,
+        );
+        state.save_atomic(&path).unwrap();
+        assert!(StateFile::load(&path).unwrap().has_upload("hash"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn coordinates_reject_non_finite_and_out_of_range_values() {
+        for pair in [
+            (f64::NAN, 0.0),
+            (0.0, f64::INFINITY),
+            (91.0, 0.0),
+            (0.0, -181.0),
+        ] {
+            assert!(validate_coordinates(pair.0, pair.1).is_err());
+        }
+        assert!(validate_coordinates(0.0, 0.0).is_ok());
+        assert!(validate_coordinates(-90.0, 180.0).is_ok());
+    }
+
+    #[test]
+    fn malformed_exif_does_not_turn_into_valid_coordinates() {
+        use exif::{Rational, Value};
+        let valid = Value::Rational(vec![
+            Rational { num: 12, denom: 1 },
+            Rational { num: 30, denom: 1 },
+            Rational { num: 0, denom: 1 },
+        ]);
+        assert_eq!(parse_dms(&valid).unwrap(), 12.5);
+        let bad = Value::Rational(vec![Rational { num: 12, denom: 0 }; 3]);
+        assert!(parse_dms(&bad).is_err());
+        let bad_minutes = Value::Rational(vec![Rational { num: 90, denom: 1 }; 3]);
+        assert!(parse_dms(&bad_minutes).is_err());
+    }
+
+    #[test]
+    fn missing_directory_is_an_error_instead_of_an_empty_import() {
+        let path = std::env::temp_dir().join(format!("geoai-missing-{}", std::process::id()));
+        assert!(collect_images(&path).is_err());
+    }
 }
