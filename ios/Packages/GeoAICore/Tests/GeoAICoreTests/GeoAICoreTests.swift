@@ -145,6 +145,32 @@ final class GeoAICoreTests: XCTestCase {
         XCTAssertEqual(RoadAssessment(id: "n", latitude: 0, longitude: 0, capturedAt: parseDate("2026-03-20T00:00:00Z")).dayPeriod, .night)
     }
 
+    func testLinkedAssessmentSuppressesLegacyDuplicateWithoutMergingDistinctPhotos() throws {
+        let data = try decode("""
+        {"photos":[
+          {"id":1,"latitude":1,"longitude":2,"image_url":"https://example.com/a.jpg"},
+          {"id":2,"latitude":3,"longitude":4,"image_url":"https://example.com/a.jpg"}],
+        "assessments":[
+          {"id":"linked-1","photo_id":1,"latitude":1,"longitude":2,"image_url":"https://example.com/a.jpg","status":"classified"},
+          {"id":"linked-2","photo_id":2,"latitude":3,"longitude":4,"image_url":"https://example.com/a.jpg","status":"classified"},
+          {"id":"legacy","latitude":1,"longitude":2,"image_url":"https://example.com/a.jpg","status":"classified"}]}
+        """)
+        XCTAssertEqual(data.assessments.count, 2)
+        XCTAssertEqual(Set(data.assessments.map(\.id)), ["linked-1", "linked-2"])
+        XCTAssertEqual(Set(data.assessments.compactMap(\.photoID)), [1, 2])
+    }
+
+    func testPhotoURLSuppressesLegacyDuplicateWhenLinkedAssessmentOmitsImage() throws {
+        let data = try decode("""
+        {"photos":[{"id":1,"latitude":1,"longitude":2,"image_url":"https://example.com/a.jpg"}],
+        "assessments":[
+          {"id":"linked","photo_id":1,"latitude":1,"longitude":2,"status":"classified"},
+          {"id":"legacy","latitude":1,"longitude":2,"image_url":"https://example.com/a.jpg","status":"classified"}]}
+        """)
+        XCTAssertEqual(data.assessments.map(\.id), ["linked"])
+        XCTAssertEqual(data.assessments.first?.imageURL?.absoluteString, "https://example.com/a.jpg")
+    }
+
     func testRepeatedLegacyPhotoURLCannotProduceDuplicateIdentifiableIDs() throws {
         let data = try decode("""
         {"photos":[{"id":1,"latitude":1,"longitude":2,"image_url":"https://example.com/a.jpg"},
@@ -256,6 +282,21 @@ final class AssessmentRepositoryTests: XCTestCase {
         let dataset = try await repository().loadLive()
         XCTAssertEqual(dataset.assessments.count, 3)
         XCTAssertNotNil(dataset.generatedAt)
+    }
+
+    func testUnexpectedPageRangeDoesNotSilentlySkipRows() async throws {
+        StubURLProtocol.handler = { request in
+            if request.url!.path.hasSuffix("assessments") {
+                return (200, ["Content-Range": "*/0"], Data("[]".utf8))
+            }
+            return (200, ["Content-Range": "1-1/1"], Data("[{\"id\":1,\"latitude\":1,\"longitude\":1}]".utf8))
+        }
+        do {
+            _ = try await repository().loadLive()
+            XCTFail("An incorrect range must not produce a complete dataset")
+        } catch let error as RepositoryError {
+            XCTAssertEqual(error, .incompleteResult)
+        }
     }
 
     func testMissingCountFailsRatherThanSilentlyReturningTruncatedRows() async throws {

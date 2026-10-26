@@ -1,6 +1,5 @@
 package com.example.msc
 
-import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -14,6 +13,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.content.IntentCompat
+import android.widget.Toast
+import java.io.IOException
 import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +30,7 @@ class CropActivity : AppCompatActivity() {
     private var sourceUri: Uri? = null
     private var photoLat: Double? = null
     private var photoLng: Double? = null
+    private var photoAddress: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,12 +48,14 @@ class CropActivity : AppCompatActivity() {
         val confirmBtn = findViewById<android.widget.ImageButton>(R.id.btnConfirm)
         val cropPill = findViewById<View>(R.id.cropPill)
 
-        sourceUri = intent.getParcelableExtra("photo_uri", Uri::class.java)
+        sourceUri = IntentCompat.getParcelableExtra(intent, "photo_uri", Uri::class.java)
         if (intent.hasExtra("lat")) photoLat = intent.getDoubleExtra("lat", 0.0)
         if (intent.hasExtra("lng")) photoLng = intent.getDoubleExtra("lng", 0.0)
+        photoAddress = intent.getStringExtra("address")
 
         // Hide pill until image is ready
         cropPill.visibility = View.INVISIBLE
+        confirmBtn.isEnabled = false
 
         sourceUri?.let { uri ->
             lifecycleScope.launch {
@@ -60,6 +65,7 @@ class CropActivity : AppCompatActivity() {
                 if (bitmap != null) {
                     cropView.setImageBitmap(bitmap)
                     cropPill.visibility = View.VISIBLE
+                    confirmBtn.isEnabled = true
                 } else {
                     finish()
                 }
@@ -67,7 +73,7 @@ class CropActivity : AppCompatActivity() {
         } ?: finish()
 
         cancelBtn.setOnClickListener {
-            sourceUri?.let { contentResolver.delete(it, null, null) }
+            sourceUri?.let { uri -> runCatching { contentResolver.delete(uri, null, null) } }
             setResult(RESULT_CANCELED)
             finish()
         }
@@ -75,8 +81,11 @@ class CropActivity : AppCompatActivity() {
         confirmBtn.setOnClickListener {
             lifecycleScope.launch {
                 confirmBtn.isEnabled = false
-                saveCroppedPhoto()
-                confirmBtn.isEnabled = true
+                cancelBtn.isEnabled = false
+                try { saveCroppedPhoto() } finally {
+                    confirmBtn.isEnabled = true
+                    cancelBtn.isEnabled = true
+                }
             }
         }
     }
@@ -146,25 +155,26 @@ class CropActivity : AppCompatActivity() {
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
                 .format(System.currentTimeMillis())
 
-            val contentValues = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, "IMG_${timestamp}_cropped")
-                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/msc")
-            }
-
-            val newUri = contentResolver.insert(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues
-            ) ?: return@withContext null
-
+            var newUri: Uri? = null
             try {
-                contentResolver.openOutputStream(newUri)?.use { out ->
-                    cropped.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                newUri = contentResolver.insert(
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    PhotoStorage.contentValues("IMG_${timestamp}_cropped")
+                ) ?: throw IOException("Could not create the cropped photo")
+                val destination = newUri
+                val output = contentResolver.openOutputStream(destination)
+                    ?: throw IOException("Could not open the cropped photo")
+                output.use { out ->
+                    if (!cropped.compress(Bitmap.CompressFormat.JPEG, 80, out)) {
+                        throw IOException("Could not encode the cropped photo")
+                    }
                 }
-                cropped.recycle()
 
                 // Write GPS EXIF
                 if (photoLat != null && photoLng != null) {
-                    contentResolver.openFileDescriptor(newUri, "rw")?.use { pfd ->
+                    val descriptor = contentResolver.openFileDescriptor(destination, "rw")
+                        ?: throw IOException("Could not save photo metadata")
+                    descriptor.use { pfd ->
                         val exif = ExifInterface(pfd.fileDescriptor)
                         exif.setLatLong(photoLat!!, photoLng!!)
                         exif.saveAttributes()
@@ -172,20 +182,30 @@ class CropActivity : AppCompatActivity() {
                 }
 
                 // Delete original uncropped photo
-                sourceUri?.let { contentResolver.delete(it, null, null) }
-
-                newUri
+                // The replacement is complete before the original is removed.
+                sourceUri?.let { original ->
+                    runCatching { contentResolver.delete(original, null, null) }
+                        .onFailure { Log.w("CropActivity", "Could not remove original photo", it) }
+                }
+                destination
             } catch (e: Exception) {
+                newUri?.let { incomplete -> runCatching { contentResolver.delete(incomplete, null, null) } }
                 Log.e("CropActivity", "Failed to save cropped image", e)
                 null
+            } finally {
+                cropped.recycle()
             }
         }
 
         if (uri != null) {
-            setResult(RESULT_OK, Intent().putExtra("cropped_uri", uri.toString()))
+            val result = Intent().putExtra("cropped_uri", uri.toString())
+            photoLat?.let { result.putExtra("lat", it) }
+            photoLng?.let { result.putExtra("lng", it) }
+            result.putExtra("address", photoAddress)
+            setResult(RESULT_OK, result)
+            finish()
         } else {
-            setResult(RESULT_CANCELED)
+            Toast.makeText(this, "Could not save the crop. Your original photo is kept. Try again.", Toast.LENGTH_LONG).show()
         }
-        finish()
     }
 }

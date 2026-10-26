@@ -1,4 +1,20 @@
-# Verification — September 22, 2026
+# Verification
+
+## Reliability review — October 27, 2026
+
+The core merge now suppresses historical URL-only assessments when an explicit
+photo association exists, preserving separate linked photos that share a URL.
+Pagination rejects responses whose Content-Range does not match the requested
+offset and returned row count.
+
+- All 27 core regression methods passed with `bash Scripts/check-core.sh` using
+  the installed Command Line Tools, including the three new merge/range cases.
+- All 17 mocked capture/network/configuration/metadata checks passed with
+  `bash Scripts/verify-capture.sh`. No live service requests were sent.
+- A full iOS build, native rendering suite and hardware camera checks were not
+  run in this review: full Xcode is unavailable on the review host.
+
+The historical build verification below describes earlier development runs.
 
 ## Build 11 — coordinated random orb styles, installed on iPhone
 

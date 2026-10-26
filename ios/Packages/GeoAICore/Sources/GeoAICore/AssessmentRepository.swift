@@ -119,6 +119,9 @@ public actor AssessmentRepository {
             expectedTotal = total
             let page = try JSONDecoder().decode([RawRecord].self, from: data)
             guard page.count <= pageSize, rows.count + page.count <= total else { throw RepositoryError.incompleteResult }
+            let expectedRange = page.isEmpty ? "*/\(total)"
+                : "\(rows.count)-\(rows.count + page.count - 1)/\(total)"
+            guard range == expectedRange else { throw RepositoryError.incompleteResult }
             for row in page {
                 guard let id = row.id, seenIDs.insert(id).inserted else { throw RepositoryError.incompleteResult }
             }

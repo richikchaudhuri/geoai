@@ -4,7 +4,6 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
-import android.content.ContentValues
 import android.content.Intent
 import android.location.Geocoder
 import android.location.LocationManager
@@ -123,10 +122,32 @@ class MainActivity : AppCompatActivity() {
                     lastPhotoUri = croppedUri
                     updateThumbnail(croppedUri)
                     showUploadPill()
-                    performUpload(croppedUri)
+                    val data = result.data
+                    performUpload(croppedUri,
+                        data?.takeIf { it.hasExtra("lat") }?.getDoubleExtra("lat", 0.0),
+                        data?.takeIf { it.hasExtra("lng") }?.getDoubleExtra("lng", 0.0),
+                        data?.getStringExtra("address"))
                 }
             }
         }
+
+    private var pendingStorageAction: (() -> Unit)? = null
+    private val storagePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val action = pendingStorageAction
+            pendingStorageAction = null
+            if (granted) action?.invoke()
+            else Toast.makeText(this, "Storage permission is required to save and view photos", Toast.LENGTH_LONG).show()
+        }
+
+    private fun withPhotoStorage(action: () -> Unit) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q &&
+            checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            pendingStorageAction = action
+            storagePermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else action()
+    }
 
     private val cameraPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -139,9 +160,10 @@ class MainActivity : AppCompatActivity() {
         }
 
     private val locationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            if (grants.values.any { it }) {
                 showLocationPanel()
+                startLocationUpdates()
                 // Only call fetchLocation() if we don't already have a fix
                 if (!locationFetched) fetchLocation()
             } else {
@@ -176,7 +198,7 @@ class MainActivity : AppCompatActivity() {
 
         setupShutterButton()
         setupLocationPanel()
-        binding.thumbnailButton.setOnClickListener { showGalleryDialog() }
+        binding.thumbnailButton.setOnClickListener { withPhotoStorage { showGalleryDialog() } }
         binding.locationButton.setOnClickListener { onLocationButtonTapped() }
         binding.settingsButton.setOnClickListener { showSettingsDialog() }
         setupFlashButton()
@@ -238,7 +260,10 @@ class MainActivity : AppCompatActivity() {
         val panel = binding.locationPanel
         if (panel.visibility == View.GONE) {
             if (isLocationEnabled()) {
-                locationPermissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                locationPermissionLauncher.launch(arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                ))
             } else {
                 showLocationPanelOffline()
             }
@@ -554,6 +579,7 @@ class MainActivity : AppCompatActivity() {
                     val lng = location.longitude
                     lastKnownLat = lat
                     lastKnownLng = lng
+                    lastKnownAddress = null
                     locationFetched = true
 
                     binding.locationCoordinates.text =
@@ -578,6 +604,7 @@ class MainActivity : AppCompatActivity() {
                             Log.w(TAG, "Geocoder failed", e)
                         }
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (lastKnownLat != lat || lastKnownLng != lng) return@withContext
                             if (resolved != null) {
                                 binding.locationAddress.text = resolved
                                 lastKnownAddress = resolved
@@ -621,9 +648,7 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("MissingPermission")
     private fun fetchLocationInBackground() {
-        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) return
+        if (!hasLocationPermission()) return
 
         val fusedClient = LocationServices.getFusedLocationProviderClient(this)
         try {
@@ -822,9 +847,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         if (locationUpdatesActive) return
-        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) return
+        if (!hasLocationPermission()) return
 
         val request = LocationRequest.Builder(
             Priority.PRIORITY_HIGH_ACCURACY,
@@ -852,6 +875,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun hasLocationPermission(): Boolean =
+        checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED ||
+        checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
     private fun stopLocationUpdates() {
         val cb = locationCallback ?: return
         fusedLocationClient?.removeLocationUpdates(cb)
@@ -876,6 +905,7 @@ class MainActivity : AppCompatActivity() {
         if (needsGeocode) {
             lastGeocodedLat = lat
             lastGeocodedLng = lng
+            lastKnownAddress = null
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val addresses = Geocoder(this@MainActivity, Locale.getDefault())
@@ -885,6 +915,7 @@ class MainActivity : AppCompatActivity() {
                             ?: "${addresses[0].locality}, ${addresses[0].countryName}"
                     else null
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        if (lastGeocodedLat != lat || lastGeocodedLng != lng) return@withContext
                         if (addr != null) {
                             lastKnownAddress = addr
                             refreshLocationPanelIfVisible()
@@ -976,7 +1007,7 @@ class MainActivity : AppCompatActivity() {
                         interpolator = OvershootInterpolator(2f)
                         start()
                     }
-                    onShutterPressed()
+                    withPhotoStorage { onShutterPressed() }
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     AnimatorSet().apply {
@@ -1051,11 +1082,17 @@ class MainActivity : AppCompatActivity() {
 
         val timestamp =
             SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "IMG_$timestamp")
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/msc")
+        val contentValues = try {
+            PhotoStorage.contentValues("IMG_$timestamp")
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not prepare photo storage", e)
+            Toast.makeText(this, "Could not save photo", Toast.LENGTH_SHORT).show()
+            return
         }
+        // Freeze metadata at capture; location updates continue during crop review.
+        val capturedLat = lastKnownLat
+        val capturedLng = lastKnownLng
+        val capturedAddress = lastKnownAddress
 
         val outputOptions = ImageCapture.OutputFileOptions.Builder(
             contentResolver,
@@ -1071,9 +1108,9 @@ class MainActivity : AppCompatActivity() {
                     output.savedUri?.let { uri ->
                         val intent = Intent(this@MainActivity, CropActivity::class.java)
                         intent.putExtra("photo_uri", uri)
-                        lastKnownLat?.let { intent.putExtra("lat", it) }
-                        lastKnownLng?.let { intent.putExtra("lng", it) }
-                        intent.putExtra("address", lastKnownAddress ?: "")
+                        capturedLat?.let { intent.putExtra("lat", it) }
+                        capturedLng?.let { intent.putExtra("lng", it) }
+                        intent.putExtra("address", capturedAddress ?: "")
                         cropLauncher.launch(intent)
                     }
                 }
@@ -1089,7 +1126,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateThumbnail(uri: Uri?) {
         uri ?: return
         try {
-            val bitmap = contentResolver.loadThumbnail(uri, android.util.Size(256, 256), null)
+            val bitmap = PhotoStorage.thumbnail(contentResolver, uri, 256)
             binding.thumbnailButton.setImageBitmap(bitmap)
             binding.thumbnailButton.clipToOutline = true
         } catch (e: Exception) {
@@ -1298,8 +1335,7 @@ class MainActivity : AppCompatActivity() {
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DATE_ADDED
         )
-        val selection = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
-        val selectionArgs = arrayOf("Pictures/msc%")
+        val (selection, selectionArgs) = PhotoStorage.gallerySelection()
         val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
 
         contentResolver.query(
@@ -1405,7 +1441,7 @@ class MainActivity : AppCompatActivity() {
                 val imageView = holder.itemView.findViewById<ImageView>(R.id.photoThumb)
 
                 try {
-                    val thumb = contentResolver.loadThumbnail(photo.uri, android.util.Size(256, 256), null)
+                    val thumb = PhotoStorage.thumbnail(contentResolver, photo.uri, 256)
                     imageView.setImageBitmap(thumb)
                 } catch (e: Exception) {
                     imageView.setImageDrawable(null)
@@ -1501,7 +1537,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         // Load full image
         try {
-            val thumb = contentResolver.loadThumbnail(photo.uri, android.util.Size(800, 800), null)
+            val thumb = PhotoStorage.thumbnail(contentResolver, photo.uri, 800)
             detailPhoto.setImageBitmap(thumb)
         } catch (e: Exception) {
             detailPhoto.setImageDrawable(null)
@@ -1512,6 +1548,7 @@ class MainActivity : AppCompatActivity() {
         detailTime.text = timeFormat.format(photo.dateAdded * 1000)
 
         // Read EXIF location
+        detailAddress.tag = photo.uri
         var lat: Double? = null
         var lng: Double? = null
         try {
@@ -1531,18 +1568,22 @@ class MainActivity : AppCompatActivity() {
             detailCoords.text = String.format(Locale.US, "%.6f, %.6f", lat, lng)
             noLocOverlay.visibility = View.GONE
 
-            // Reverse geocode
-            try {
-                val geocoder = Geocoder(this, Locale.getDefault())
-                val addresses = geocoder.getFromLocation(lat!!, lng!!, 1)
-                if (!addresses.isNullOrEmpty()) {
-                    detailAddress.text = addresses[0].getAddressLine(0)
-                        ?: "${addresses[0].locality}, ${addresses[0].countryName}"
-                } else {
-                    detailAddress.text = "Address not found"
+            // A geocoder may block for seconds. Keep gallery navigation responsive
+            // and ignore results belonging to a photo the user has moved past.
+            detailAddress.text = "Resolving address…"
+            val photoLat = lat
+            val photoLng = lng
+            lifecycleScope.launch {
+                val resolved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val addresses = Geocoder(this@MainActivity, Locale.getDefault())
+                            .getFromLocation(photoLat!!, photoLng!!, 1)
+                        addresses?.firstOrNull()?.let {
+                            it.getAddressLine(0) ?: "${it.locality}, ${it.countryName}"
+                        } ?: "Address not found"
+                    } catch (e: Exception) { "Geocoder unavailable" }
                 }
-            } catch (e: Exception) {
-                detailAddress.text = "Geocoder unavailable"
+                if (detailAddress.tag == photo.uri) detailAddress.text = resolved
             }
 
             // Map
@@ -1685,11 +1726,11 @@ class MainActivity : AppCompatActivity() {
         binding.uploadPill.scaleY = 1f
     }
 
-    private fun performUpload(uri: Uri) {
+    private fun performUpload(uri: Uri, latitude: Double?, longitude: Double?, address: String?) {
         lifecycleScope.launch {
             val success = CloudUploader.uploadPhoto(
                 this@MainActivity, contentResolver, uri,
-                lastKnownLat, lastKnownLng, lastKnownAddress
+                latitude, longitude, address
             )
             if (success) showUploadSuccess() else showUploadFail()
         }

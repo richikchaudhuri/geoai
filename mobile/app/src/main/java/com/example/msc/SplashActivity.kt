@@ -14,6 +14,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.google.android.gms.location.LocationServices
 import java.util.Locale
 import com.google.android.gms.location.Priority
@@ -25,10 +29,11 @@ class SplashActivity : AppCompatActivity() {
     private var minTimeReady = false
     private lateinit var loadingBarFill: View
     private var barWidth = 0
+    private var isProceeding = false
 
     private val locationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            if (grants.values.any { it }) {
                 updateProgress(40)
                 fetchLocation()
             } else {
@@ -83,7 +88,10 @@ class SplashActivity : AppCompatActivity() {
     }
 
     private fun requestPermissions() {
-        locationPermissionLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
+        locationPermissionLauncher.launch(arrayOf(
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ))
     }
 
     @SuppressLint("MissingPermission")
@@ -94,30 +102,34 @@ class SplashActivity : AppCompatActivity() {
             Priority.PRIORITY_HIGH_ACCURACY,
             CancellationTokenSource().token
         ).addOnSuccessListener { location ->
-            updateProgress(100)
-            locationReady = true
-            if (location != null) {
-                val prefs = getSharedPreferences("msc_prefs", MODE_PRIVATE).edit()
-                prefs.putFloat("splash_lat", location.latitude.toFloat())
-                prefs.putFloat("splash_lng", location.longitude.toFloat())
-                prefs.putBoolean("splash_location_available", true)
+            lifecycleScope.launch {
+                updateProgress(100)
+                if (location != null) {
+                    val prefs = getSharedPreferences("msc_prefs", MODE_PRIVATE).edit()
+                    prefs.putFloat("splash_lat", location.latitude.toFloat())
+                    prefs.putFloat("splash_lng", location.longitude.toFloat())
+                    prefs.putBoolean("splash_location_available", true)
 
-                // Pre-resolve address so it's ready before any photo
-                try {
-                    val geocoder = Geocoder(this, Locale.getDefault())
-                    val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
-                    if (!addresses.isNullOrEmpty()) {
-                        val addr = addresses[0].getAddressLine(0)
-                            ?: "${addresses[0].locality}, ${addresses[0].countryName}"
-                        prefs.putString("splash_address", addr)
+                    // Pre-resolve address so it's ready before any photo
+                    try {
+                        val addresses = withContext(Dispatchers.IO) {
+                            Geocoder(this@SplashActivity, Locale.getDefault())
+                                .getFromLocation(location.latitude, location.longitude, 1)
+                        }
+                        if (!addresses.isNullOrEmpty()) {
+                            val addr = addresses[0].getAddressLine(0)
+                                ?: "${addresses[0].locality}, ${addresses[0].countryName}"
+                            prefs.putString("splash_address", addr)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("SplashActivity", "Geocoder failed during splash", e)
                     }
-                } catch (e: Exception) {
-                    Log.e("SplashActivity", "Geocoder failed during splash", e)
-                }
 
-                prefs.apply()
+                    prefs.apply()
+                }
+                locationReady = true
+                checkAndProceed()
             }
-            checkAndProceed()
         }.addOnFailureListener {
             updateProgress(100)
             locationReady = true
@@ -126,17 +138,22 @@ class SplashActivity : AppCompatActivity() {
     }
 
     private fun checkAndProceed() {
-        if (locationReady && minTimeReady) {
+        if (locationReady && minTimeReady && !isProceeding && !isFinishing && !isDestroyed) {
+            isProceeding = true
             updateProgress(100)
             loadingBarFill.postDelayed({
+                if (isFinishing || isDestroyed) return@postDelayed
                 startActivity(Intent(this, MainActivity::class.java))
                 finish()
-                overrideActivityTransition(
-                    OVERRIDE_TRANSITION_OPEN,
-                    android.R.anim.fade_in,
-                    android.R.anim.fade_out
-                )
+                if (android.os.Build.VERSION.SDK_INT >= 34) {
+                    overrideActivityTransition(OVERRIDE_TRANSITION_OPEN,
+                        android.R.anim.fade_in, android.R.anim.fade_out)
+                } else {
+                    @Suppress("DEPRECATION")
+                    overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+                }
             }, 300)
         }
     }
+
 }

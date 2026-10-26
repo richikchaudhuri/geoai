@@ -6,12 +6,15 @@ import android.location.Geocoder
 import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import okio.source
 import org.json.JSONObject
@@ -50,7 +53,9 @@ object CloudUploader {
             val streamingBody = object : RequestBody() {
                 override fun contentType() = "image/jpeg".toMediaType()
                 override fun writeTo(sink: BufferedSink) {
-                    contentResolver.openInputStream(photoUri)?.source()?.use { source ->
+                    val input = contentResolver.openInputStream(photoUri)
+                        ?: throw IOException("The saved photo could not be opened")
+                    input.source().use { source ->
                         sink.writeAll(source)
                     }
                 }
@@ -62,21 +67,19 @@ object CloudUploader {
                 .addFormDataPart("upload_preset", CLOUDINARY_PRESET)
                 .build()
 
-            val cloudinaryResponse = client.newCall(
+            val imageUrl = client.newCall(
                 Request.Builder()
                     .url("https://api.cloudinary.com/v1_1/$CLOUDINARY_CLOUD/image/upload")
                     .post(requestBody)
                     .build()
-            ).execute()
-
-            if (!cloudinaryResponse.isSuccessful) {
-                Log.e(TAG, "Cloudinary upload failed: ${cloudinaryResponse.code}")
-                return@withContext false
+            ).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Cloudinary upload failed: ${response.code}")
+                    return@withContext false
+                }
+                JSONObject(response.body?.string() ?: "").getString("secure_url")
             }
-
-            val imageUrl = JSONObject(cloudinaryResponse.body?.string() ?: "")
-                .getString("secure_url")
-            Log.d(TAG, "Cloudinary URL: $imageUrl")
+            ensureActive()
 
             // 2. Insert into Supabase
             val payload = JSONObject().apply {
@@ -86,7 +89,7 @@ object CloudUploader {
                 if (lng != null) put("longitude", lng)
             }
 
-            val supabaseResponse = client.newCall(
+            client.newCall(
                 Request.Builder()
                     .url("$SUPABASE_URL/rest/v1/photos")
                     .addHeader("apikey", SUPABASE_KEY)
@@ -95,15 +98,14 @@ object CloudUploader {
                     .addHeader("Prefer", "return=minimal")
                     .post(payload.toString().toRequestBody("application/json".toMediaType()))
                     .build()
-            ).execute()
-
-            if (supabaseResponse.isSuccessful) {
-                Log.d(TAG, "Supabase insert success")
-                true
-            } else {
-                Log.e(TAG, "Supabase insert failed: ${supabaseResponse.code} ${supabaseResponse.body?.string()}")
-                false
+            ).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Supabase insert failed: ${response.code}")
+                }
+                response.isSuccessful
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: IOException) {
             Log.e(TAG, "Upload failed", e)
             false
@@ -132,7 +134,3 @@ object CloudUploader {
         }
     }
 }
-
-// Extension to keep call sites clean
-private fun String.toRequestBody(type: okhttp3.MediaType) =
-    okhttp3.RequestBody.Companion.create(type, this)

@@ -8,7 +8,7 @@ Classified results surface on the WebGIS map.
 
 ## Features
 
-- **Camera** — CameraX preview with single-tap shutter, 5-second cooldown
+- **Camera** — CameraX preview with single-tap shutter, 6-second cooldown
   between captures (rate limiter), live luminance metering with a
   "Low light · try flash" pill that drops in when the scene gets dim
 - **Flash toggle** — off / on / auto cycle next to the shutter, with a
@@ -41,7 +41,25 @@ Classified results surface on the WebGIS map.
 
 Output: `app/build/outputs/apk/{debug,release}/app-{debug,release}.apk`
 
-`minSdk = 34`, `targetSdk = 36`.
+`minSdk = 26`, `targetSdk = 36`. Android 8/9 request storage permission before
+saving or opening the gallery; Android 10+ use scoped MediaStore storage.
+
+```bash
+bash gradlew testDebugUnitTest assembleDebug
+bash gradlew connectedDebugAndroidTest  # requires an emulator or test device
+```
+
+The instrumented crop tests verify that saving/recycling a crop leaves the
+preview usable and allows another save attempt. They do not use the camera or
+contact the upload services. Failed crop writes retain the original photo and
+remove incomplete replacements; capture coordinates stay with the photo through
+crop review and upload.
+
+Verified on October 27, 2026: debug APK build, JVM unit task, and Android lint
+passed (lint has existing resource/style warnings and no errors). All four
+instrumented tests, including the three crop/URI regressions, passed on an
+isolated API 36 emulator via AndroidJUnitRunner. Android 8/9 hardware storage
+and actual camera/upload behavior still require device verification.
 
 ## Configuration
 

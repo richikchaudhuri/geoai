@@ -30,6 +30,20 @@ public enum SnapshotDecoder {
             let key = row.photoID.map { "photo:\($0)" } ?? row.imageURL.map { "image:\($0.absoluteString)" } ?? "id:\(id)"
             if keys.insert(key).inserted { canonical.append(row) }
         }
+        // A foreign-key match is authoritative. Historical URL-only rows for
+        // that image must not reappear below as standalone map observations.
+        // Distinct photos may legitimately share an image, so retain every
+        // explicit photo association instead of deduplicating all URLs.
+        let linkedPhotoIDs = Set(canonical.compactMap(\.photoID))
+        var linkedImages = Set(canonical.filter { $0.photoID != nil }.compactMap(\.imageURL))
+        for photo in photos {
+            if let id = photo.id.flatMap(Int.init), linkedPhotoIDs.contains(id), let url = photo.imageURL {
+                linkedImages.insert(url)
+            }
+        }
+        canonical.removeAll { row in
+            row.photoID == nil && row.imageURL.map(linkedImages.contains) == true
+        }
         var byPhoto: [Int: RawRecord] = [:]
         var byImage: [URL: RawRecord] = [:]
         for row in canonical {

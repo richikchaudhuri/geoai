@@ -337,7 +337,11 @@ class CropImageView @JvmOverloads constructor(
         // could otherwise return a 1×1 bitmap that's useless to the AI
         // pipeline). 64px is the smallest size we'll allow.
         if (srcSize < 64) return null
-        return Bitmap.createBitmap(bmp, srcLeft, srcTop, srcSize, srcSize)
+        val cropped = Bitmap.createBitmap(bmp, srcLeft, srcTop, srcSize, srcSize)
+        // createBitmap may return the original for a full-frame square crop.
+        // The saver owns/recycles its result; the view must retain a live bitmap
+        // for redraws and retries after a storage failure.
+        return if (cropped === bmp) bmp.copy(Bitmap.Config.ARGB_8888, false) else cropped
     }
 
     companion object {
