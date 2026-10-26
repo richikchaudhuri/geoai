@@ -929,6 +929,7 @@ body.chrome-dark .card-connectors line {
   transform: translateX(0) scale(1);
   pointer-events: auto;
 }
+.severity-pill[hidden] { display: none !important; }
 
 .severity-pill-dot {
   width: 12px;
@@ -975,6 +976,9 @@ body.chrome-dark .severity-pill .severity-pill-close:hover { background: rgba(25
     font-size: 13px;
   }
   .severity-pill-close { width: 26px; height: 26px; }
+  #timePill:not([hidden]) ~ #severityPill:not([hidden]) {
+    bottom: calc(132px + var(--map-attribution-height, 16px));
+  }
 }
 
 /* ---------- About card ---------- */
@@ -1243,8 +1247,8 @@ body.chrome-dark .about-text code { background: rgba(255, 255, 255, 0.08); }
 body.chrome-dark .about-phase-tag.wip { background: rgba(255, 255, 255, 0.1); }
 
 @media (max-width: 820px) {
-  .about-stack { top: 110px; left: 16px; right: 16px; }
-  .about-card { width: 100%; max-width: none; padding: 22px 22px 26px; max-height: calc(100vh - 140px); }
+  .about-stack { top: 164px; left: 16px; right: 16px; }
+  .about-card { width: 100%; max-width: none; padding: 22px 22px 26px; max-height: calc(100vh - 184px); }
   .about-brand .brand-geo { font-size: 46px; -webkit-text-stroke: 1.2px currentColor; }
   .about-brand .brand-ai { font-size: 22px; }
 }
@@ -1418,14 +1422,17 @@ body.chrome-dark .filter-list-item .count { background: rgba(255, 255, 255, 0.1)
 
 @media (max-width: 820px) {
   .filter-stack {
-    top: 110px;
+    top: 164px;
     left: 16px;
     right: 16px;
     flex-direction: column;
+    max-height: calc(100vh - 184px);
+    overflow-y: auto;
   }
   .filter-card {
     width: 100%;
     max-height: 280px;
+    flex-shrink: 0;
   }
 }
 
@@ -2023,8 +2030,8 @@ body.chrome-dark .detail-photo-wrap { background: rgba(255, 255, 255, 0.06); }
 /* ---------- Mobile ---------- */
 
 @media (max-width: 820px) {
-  .topbar { top: 20px; left: 20px; gap: 12px; padding: 8px 12px 8px 18px; }
-  .toolbar { top: 22px; right: 20px; gap: 8px; padding: 6px; }
+  .topbar { top: 12px; left: 12px; right: 12px; gap: 8px; padding: 8px; }
+  .toolbar { top: 80px; right: 12px; gap: 8px; padding: 6px; }
   .search-wrap { width: 56px; height: 56px; }
   .search-wrap.hint,
   .search-wrap.active,
@@ -2035,15 +2042,14 @@ body.chrome-dark .detail-photo-wrap { background: rgba(255, 255, 255, 0.06); }
   .settings-wrap { width: 56px; height: 56px; }
   .settings-icon-btn svg { width: 22px; height: 22px; }
   .settings-panel { width: 220px; }
-  .nav-pill { padding: 6px; }
-  .nav-item { width: 48px; height: 42px; padding: 0; font-size: 14px; }
-  .nav-icon { width: 20px; height: 20px; }
-  .nav-item.active { width: 110px; padding: 0; }
+  .nav-pill { padding: 4px; margin-left: auto; gap: 2px; }
+  .nav-item { width: 34px; height: 38px; padding: 0; font-size: 13px; }
+  .nav-icon { width: 18px; height: 18px; }
+  .nav-item.active { width: 76px; padding: 0; }
   .nav-item.active .nav-label { max-width: 80px; margin-left: 6px; }
-  .brand-geo { font-size: 52px; -webkit-text-stroke-width: 1.4px; }
+  .topbar .brand-geo { font-size: 32px; -webkit-text-stroke-width: 1px; padding-left: 0; }
   body.chrome-dark .brand-geo { -webkit-text-stroke-color: #FFFFFF; }
-  .brand-ai { font-size: 24px; }
-  .nav-pill { padding: 6px; }
+  .topbar .brand-ai { font-size: 16px; margin-left: 3px; }
   .status-chip { bottom: calc(20px + var(--map-attribution-height, 16px)); left: 20px; padding: 10px 16px; font-size: 13px; }
   .detail-panel { width: 280px; }
   .detail-photo-wrap { width: 100px; border-radius: 18px 0 0 18px; }

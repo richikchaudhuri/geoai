@@ -184,9 +184,27 @@ struct RawRecord: Decodable, Sendable {
 
 func parseDate(_ value: String?) -> Date? {
     guard let value else { return nil }
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let date = formatter.date(from: value) { return date }
-    formatter.formatOptions = [.withInternetDateTime]
-    return formatter.date(from: value)
+    return SnapshotDateParser.parse(value)
+}
+
+private enum SnapshotDateParser {
+    // Formatter creation is expensive for large snapshots. Reuse both formats,
+    // with a lock because live tables and snapshot decoders can run concurrently.
+    private static let lock = NSLock()
+    private static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let wholeSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    static func parse(_ value: String) -> Date? {
+        lock.lock()
+        defer { lock.unlock() }
+        return fractional.date(from: value) ?? wholeSeconds.date(from: value)
+    }
 }

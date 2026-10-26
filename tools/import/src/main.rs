@@ -11,9 +11,9 @@
 //!   1 req/sec, results cached by rounded coords in the state file).
 //! - Resumability via SHA-256 dedup in a JSON state file. Re-running on
 //!   the same folder skips already-uploaded images (`--no-resume` opts out).
-//! - Per-request retry with exponential backoff (`--retries N`). Only
-//!   transient errors (network failures, HTTP 5xx, 429) are retried;
-//!   4xx errors fail fast.
+//! - Per-request retry with exponential backoff (`--retries N`). Ambiguous
+//!   Supabase inserts are reconciled by image URL instead of blindly repeated;
+//!   definitive 4xx errors (other than 429) fail fast.
 //!
 //! Self-contained: no Python, no Node, no SDKs. Just direct HTTPS to
 //! Cloudinary, Supabase, and Nominatim REST.
@@ -93,7 +93,7 @@ struct Args {
     #[arg(long)]
     no_resume: bool,
 
-    /// Retries per request on transient failures (network, 5xx, 429).
+    /// Retries on safely repeatable failures; uncertain inserts are reconciled.
     /// Backoff is exponential: 1s, 2s, 4s, …
     #[arg(long, default_value_t = 2)]
     retries: u32,
@@ -814,27 +814,78 @@ async fn supabase_insert(
     client: &reqwest::Client,
     payload: &SupabaseInsert<'_>,
 ) -> Result<(), UploadErr> {
-    let resp = client
-        .post(format!("{SUPABASE_URL}/rest/v1/photos"))
+    supabase_insert_at(client, SUPABASE_URL, payload).await
+}
+
+async fn supabase_insert_at(
+    client: &reqwest::Client,
+    base_url: &str,
+    payload: &SupabaseInsert<'_>,
+) -> Result<(), UploadErr> {
+    let response = client
+        .post(format!("{base_url}/rest/v1/photos"))
         .header("apikey", SUPABASE_ANON_KEY)
         .header("Authorization", format!("Bearer {SUPABASE_ANON_KEY}"))
         .header("Content-Type", "application/json")
         .header("Prefer", "return=minimal")
         .json(payload)
         .send()
-        .await
-        .map_err(|e| transient(format!("network: {e}")))?;
+        .await;
+    let resp = match response {
+        Ok(resp) => resp,
+        // A failed connection did not submit the request. Once connected,
+        // a missing reply can mean the insert committed: never blindly POST again.
+        Err(error) if error.is_connect() => return Err(transient(format!("network: {error}"))),
+        Err(_) => return reconcile_receipt(client, base_url, payload.image_url).await,
+    };
     let status = resp.status();
+    if status.is_server_error() {
+        drop(resp);
+        return reconcile_receipt(client, base_url, payload.image_url).await;
+    }
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         let msg = format!("supabase {status}: {body}");
-        return Err(if status.is_server_error() || status.as_u16() == 429 {
+        return Err(if status.as_u16() == 429 {
             transient(msg)
         } else {
             fatal(msg)
         });
     }
     Ok(())
+}
+
+async fn reconcile_receipt(
+    client: &reqwest::Client,
+    base_url: &str,
+    image_url: &str,
+) -> Result<(), UploadErr> {
+    let lookup = client
+        .get(format!("{base_url}/rest/v1/photos"))
+        .header("apikey", SUPABASE_ANON_KEY)
+        .header("Authorization", format!("Bearer {SUPABASE_ANON_KEY}"))
+        .query(&[
+            ("select", "id"),
+            ("image_url", &format!("eq.{image_url}")),
+            ("limit", "1"),
+        ])
+        .send()
+        .await;
+    if let Ok(response) = lookup {
+        if response.status().is_success() {
+            if let Ok(rows) = response.json::<Vec<serde_json::Value>>().await {
+                if rows
+                    .iter()
+                    .any(|row| row.get("id").is_some_and(|id| !id.is_null()))
+                {
+                    return Ok(());
+                }
+            }
+        }
+    }
+    Err(fatal(format!(
+        "receipt could not be confirmed; automatic POST retry was stopped to avoid duplicates. Check photos.image_url for {image_url} before re-running this image"
+    )))
 }
 
 // ---------- Display helpers -----------------------------------------------
@@ -865,6 +916,109 @@ fn spinner_style() -> Result<ProgressStyle> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+
+    fn receipt_server(
+        post_status: Option<u16>,
+        receipt: bool,
+    ) -> (String, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            for request_index in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0; 1024];
+                loop {
+                    let n = stream.read(&mut buffer).unwrap();
+                    assert!(n > 0);
+                    request.extend_from_slice(&buffer[..n]);
+                    if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&request[..end]);
+                        let length = headers
+                            .lines()
+                            .find_map(|line| {
+                                line.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .and_then(|n| n.trim().parse::<usize>().ok())
+                            })
+                            .unwrap_or(0);
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                let request = String::from_utf8(request).unwrap();
+                if request_index == 0 {
+                    assert!(request.starts_with("POST "));
+                    if let Some(status) = post_status {
+                        write!(stream, "HTTP/1.1 {status} Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+                    }
+                    // None simulates a committed insert whose response was lost.
+                } else {
+                    assert!(
+                        request.starts_with("GET "),
+                        "ambiguous POST must never be repeated"
+                    );
+                    assert!(request.contains("image_url=eq.https%3A%2F%2Fexample.com%2Fphoto.jpg"));
+                    let body = if receipt { r#"[{"id":42}]"# } else { "[]" };
+                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                }
+            }
+        });
+        (base, handle)
+    }
+
+    #[tokio::test]
+    async fn lost_insert_reply_and_server_error_reconcile_without_another_post() {
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let payload = SupabaseInsert {
+            image_url: "https://example.com/photo.jpg",
+            address: String::new(),
+            latitude: 0.0,
+            longitude: 0.0,
+        };
+        for status in [None, Some(503)] {
+            let (base, server) = receipt_server(status, true);
+            let result = with_retry(2, "supabase", || {
+                supabase_insert_at(&client, &base, &payload)
+            })
+            .await;
+            server.join().unwrap();
+            assert!(result.is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn unconfirmed_insert_stops_automatic_retry_with_actionable_error() {
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let payload = SupabaseInsert {
+            image_url: "https://example.com/photo.jpg",
+            address: String::new(),
+            latitude: 0.0,
+            longitude: 0.0,
+        };
+        let (base, server) = receipt_server(Some(503), false);
+        let error = with_retry(2, "supabase", || {
+            supabase_insert_at(&client, &base, &payload)
+        })
+        .await
+        .unwrap_err();
+        server.join().unwrap();
+        assert!(!error.retryable);
+        assert!(error.msg.contains("before re-running"));
+    }
 
     #[test]
     fn corrupt_resume_state_fails_instead_of_silently_reuploading() {

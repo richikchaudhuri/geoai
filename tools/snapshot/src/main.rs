@@ -16,6 +16,7 @@
 //! `--both` writes both formats side-by-side.
 
 use std::collections::{HashMap, HashSet};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -86,6 +87,7 @@ async fn main() -> Result<()> {
     if limit == 0 || limit > 10000 {
         return Err(anyhow!("--limit must be in 1..=10000"));
     }
+    let outputs = output_paths(&args)?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
@@ -110,34 +112,61 @@ async fn main() -> Result<()> {
         assessments.len()
     );
 
-    let want_json = args.format == OutputFormat::Json || args.both;
-    let want_geojson = args.format == OutputFormat::Geojson || args.both;
+    for (format, path) in outputs {
+        match format {
+            OutputFormat::Json => {
+                write_json_shape(&path, &photos, &assessments, &fetched_at, args.pretty)?
+            }
+            OutputFormat::Geojson => {
+                write_geojson_shape(&path, &photos, &assessments, &fetched_at, args.pretty)?
+            }
+        }
+        report_write(&path)?;
+    }
+    Ok(())
+}
 
+fn output_paths(args: &Args) -> Result<Vec<(OutputFormat, PathBuf)>> {
     let primary_default: PathBuf = match args.format {
         OutputFormat::Json => "data/snapshot.json".into(),
         OutputFormat::Geojson => "data/snapshot.geojson".into(),
     };
     let primary_path = args.output.clone().unwrap_or(primary_default);
-
-    if want_json {
+    if args.both {
+        let other_extension = if args.format == OutputFormat::Json {
+            "geojson"
+        } else {
+            "json"
+        };
+        // Case-insensitive comparison also protects macOS/Windows filesystems.
+        if primary_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case(other_extension))
+        {
+            return Err(anyhow!(
+                "--both output paths would overlap; use a primary extension matching --format"
+            ));
+        }
+    }
+    let mut outputs = Vec::new();
+    if args.format == OutputFormat::Json || args.both {
         let path = if args.format == OutputFormat::Json {
             primary_path.clone()
         } else {
             primary_path.with_extension("json")
         };
-        write_json_shape(&path, &photos, &assessments, &fetched_at, args.pretty)?;
-        report_write(&path)?;
+        outputs.push((OutputFormat::Json, path));
     }
-    if want_geojson {
+    if args.format == OutputFormat::Geojson || args.both {
         let path = if args.format == OutputFormat::Geojson {
             primary_path.clone()
         } else {
             primary_path.with_extension("geojson")
         };
-        write_geojson_shape(&path, &photos, &assessments, &fetched_at, args.pretty)?;
-        report_write(&path)?;
+        outputs.push((OutputFormat::Geojson, path));
     }
-    Ok(())
+    Ok(outputs)
 }
 
 // ---------- Supabase REST fetch -------------------------------------------
@@ -348,19 +377,45 @@ fn write_geojson_shape(
 }
 
 fn write_json(path: &Path, value: &serde_json::Value, pretty: bool) -> Result<()> {
+    write_atomic(path, |file| {
+        let mut writer = BufWriter::new(file);
+        if pretty {
+            serde_json::to_writer_pretty(&mut writer, value)?;
+        } else {
+            serde_json::to_writer(&mut writer, value)?;
+        }
+        writer.flush()?;
+        Ok(())
+    })
+}
+
+fn write_atomic(path: &Path, write: impl FnOnce(&mut std::fs::File) -> Result<()>) -> Result<()> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("mkdir {}", parent.display()))?;
         }
     }
-    let text = if pretty {
-        serde_json::to_string_pretty(value)?
-    } else {
-        serde_json::to_string(value)?
-    };
-    std::fs::write(path, &text).with_context(|| format!("write {}", path.display()))?;
-    Ok(())
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let temporary = path.with_file_name(format!(
+        ".geoai-snapshot-{}-{nonce}.tmp",
+        std::process::id()
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    let result: Result<()> = (|| {
+        write(&mut file)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temporary, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result.with_context(|| format!("write {}", path.display()))
 }
 
 fn report_write(path: &Path) -> Result<()> {
@@ -418,6 +473,48 @@ mod tests {
 
     fn row(value: serde_json::Value) -> Row {
         value.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn both_formats_never_share_an_output_path() {
+        for (format, extension) in [("json", "geojson"), ("geojson", "JSON")] {
+            let args = Args::try_parse_from([
+                "snapshot",
+                "--both",
+                "--format",
+                format,
+                "--output",
+                &format!("snapshot.{extension}"),
+            ])
+            .unwrap();
+            assert!(output_paths(&args).is_err());
+        }
+        let args =
+            Args::try_parse_from(["snapshot", "--both", "--output", "data/snapshot.json"]).unwrap();
+        let outputs = output_paths(&args).unwrap();
+        assert_eq!(outputs[0].1, PathBuf::from("data/snapshot.json"));
+        assert_eq!(outputs[1].1, PathBuf::from("data/snapshot.geojson"));
+    }
+
+    #[test]
+    fn interrupted_write_preserves_existing_snapshot_and_cleans_up() {
+        let directory = std::env::temp_dir().join(format!("geoai-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("snapshot.json");
+        std::fs::write(&path, "previous complete snapshot").unwrap();
+        let result = write_atomic(&path, |file| {
+            file.write_all(b"incomplete replacement")?;
+            Err(anyhow!("simulated write failure"))
+        });
+        assert!(result.is_err());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "previous complete snapshot"
+        );
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        write_json(&path, &json!({"photos": []}), false).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), r#"{"photos":[]}"#);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

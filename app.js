@@ -15,6 +15,7 @@ const LoadingScreen = (() => {
   ];
   let currentStage = -1;
   let finished = false;
+  const animationEvents = new AbortController();
   const minStartTime = performance.now();
 
   function swapStatus(text) {
@@ -49,12 +50,18 @@ const LoadingScreen = (() => {
     const remaining = Math.max(0, 900 - elapsed);
     setTimeout(() => {
       screen.classList.add('done');
+      animationEvents.abort();
+      setTimeout(() => { canvas.width = 0; canvas.height = 0; }, 700);
     }, remaining + 400);
   }
 
   // ----- Interactive constellation field -----
   const canvas = document.getElementById('loadingCanvas');
   const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    setTimeout(finish, 12000);
+    return { setStage, finish, canvasAvailable: false };
+  }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   let cw = 0, ch = 0;
   let mouseX = 0, mouseY = 0, hasMouse = false;
@@ -71,7 +78,7 @@ const LoadingScreen = (() => {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   resize();
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize', resize, { signal: animationEvents.signal });
 
   for (let i = 0; i < COUNT; i++) {
     particles.push({
@@ -87,17 +94,17 @@ const LoadingScreen = (() => {
 
   window.addEventListener('mousemove', (e) => {
     mouseX = e.clientX; mouseY = e.clientY; hasMouse = true;
-  });
+  }, { signal: animationEvents.signal });
   window.addEventListener('touchmove', (e) => {
     if (!e.touches.length) return;
     mouseX = e.touches[0].clientX; mouseY = e.touches[0].clientY; hasMouse = true;
-  }, { passive: true });
+  }, { passive: true, signal: animationEvents.signal });
 
   const ripples = [];
   window.addEventListener('mousedown', (e) => {
     if (finished) return;
     ripples.push({ x: e.clientX, y: e.clientY, r: 0, alpha: 0.6 });
-  });
+  }, { signal: animationEvents.signal });
 
   let frame = 0;
   function draw() {
@@ -194,7 +201,7 @@ const LoadingScreen = (() => {
 
   setTimeout(() => finish(), 12000);
 
-  return { setStage, finish };
+  return { setStage, finish, canvasAvailable: true };
 })();
 
 const SUPABASE_URL = 'https://vtlkitpoffudiefuoijb.supabase.co';
@@ -256,6 +263,7 @@ LoadingScreen.setStage(0); // Initialising map
 const map = L.map('map', {
   zoomControl: false,
   attributionControl: true,
+  preferCanvas: LoadingScreen.canvasAvailable,
   minZoom: 1,
   maxZoom: 22,
 }).setView(BENGALURU, 12);
@@ -474,12 +482,13 @@ async function runSearch(q) {
     searchResults.innerHTML = '';
     return;
   }
-  searchController = new AbortController();
+  const controller = searchController = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&polygon_geojson=0&q=${encodeURIComponent(q)}`;
   try {
     const res = await fetch(url, {
       headers: { 'Accept-Language': navigator.language || 'en' },
-      signal: searchController.signal,
+      signal: controller.signal,
     });
     if (!res.ok) throw new Error(`search HTTP ${res.status}`);
     const data = await res.json();
@@ -487,10 +496,20 @@ async function runSearch(q) {
     renderResults(Array.isArray(data) ? data : []);
   } catch (e) {
     if (request === searchRequest) renderResults([]);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
+function searchCoordinates(item) {
+  if (!item || typeof item.display_name !== 'string' || !item.display_name.trim()) return null;
+  const parse = value => (typeof value === 'number' || (typeof value === 'string' && value.trim())) ? Number(value) : NaN;
+  const point = { latitude: parse(item.lat), longitude: parse(item.lon) };
+  return hasCoordinates(point) ? point : null;
+}
+
 function renderResults(items) {
+  items = items.filter(item => searchCoordinates(item));
   searchResults.innerHTML = '';
   if (!items.length) {
     const empty = document.createElement('div');
@@ -517,20 +536,22 @@ function renderResults(items) {
 }
 
 function selectResult(item) {
+  const point = searchCoordinates(item);
+  if (!point) return;
   cancelSearch();
-  const lat = parseFloat(item.lat);
-  const lon = parseFloat(item.lon);
+  const lat = point.latitude;
+  const lon = point.longitude;
   const bb = item.boundingbox; // [southLat, northLat, westLon, eastLon]
-
+  const boundsValues = Array.isArray(bb) && bb.length === 4 ? bb.map(v =>
+    (typeof v === 'number' || (typeof v === 'string' && v.trim())) ? Number(v) : NaN) : [];
+  const [south, north, west, east] = boundsValues;
+  const validBounds = hasCoordinates({ latitude: south, longitude: west }) &&
+    hasCoordinates({ latitude: north, longitude: east }) && south <= north && west <= east;
 
   if (searchHighlight) { map.removeLayer(searchHighlight); searchHighlight = null; }
   if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
 
-  if (bb && bb.length === 4) {
-    const south = parseFloat(bb[0]);
-    const north = parseFloat(bb[1]);
-    const west = parseFloat(bb[2]);
-    const east = parseFloat(bb[3]);
+  if (validBounds) {
     const bounds = [[south, west], [north, east]];
 
     searchHighlight = L.rectangle(bounds, {
@@ -681,9 +702,9 @@ const Cache = {
       const raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (!parsed || !Array.isArray(parsed.data) || !parsed.timestamp) return null;
+      if (!parsed || !Array.isArray(parsed.data) || !parsed.data.every(isRecord) || !Number.isFinite(parsed.timestamp)) return null;
       const age = Date.now() - parsed.timestamp;
-      if (age > CACHE_HARD_LIMIT_MS) {
+      if (age < 0 || age > CACHE_HARD_LIMIT_MS) {
         localStorage.removeItem(CACHE_KEY);
         return null;
       }
@@ -732,10 +753,9 @@ function colorForTypes(types) {
 }
 
 function effectiveTypes(row) {
-  if (row.expert_reviewed && Array.isArray(row.expert_corrected_types)) {
-    return row.expert_corrected_types;
-  }
-  return Array.isArray(row.distress_types) ? row.distress_types : [];
+  const types = row.expert_reviewed && Array.isArray(row.expert_corrected_types)
+    ? row.expert_corrected_types : row.distress_types;
+  return Array.isArray(types) ? types.filter(type => typeof type === 'string' && type.length > 0) : [];
 }
 
 function effectiveSeverity(row) {
@@ -749,21 +769,44 @@ function effectiveConfidence(row) {
   return row.stage1_confidence || 0;
 }
 
-async function fetchRows(table, columns, limit = 10000) {
+function isRecord(row) {
+  return row !== null && typeof row === 'object' && !Array.isArray(row);
+}
+
+async function withDeadline(run, timeoutMs) {
+  const controller = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => run(controller.signal)),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Data request timed out')), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    // Cancel any still-running sibling request on failure, and stop retries.
+    controller.abort();
+  }
+}
+
+async function fetchRows(table, columns, signal, limit = 10000) {
   const rows = [];
   const seenIds = new Set();
   // PostgREST can cap a response below the requested range. Advance by the
   // actual row count so a successful first page never silently truncates data.
   while (rows.length < limit) {
+    if (signal?.aborted) throw new Error('Data request cancelled');
     const { data, error } = await sb.from(table).select(columns)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
+      .abortSignal(signal)
       .range(rows.length, Math.min(rows.length + 999, limit - 1));
     if (error) throw error;
     if (!Array.isArray(data)) throw new Error(`Invalid ${table} response`);
     if (!data.length) break;
     for (const row of data) {
-      if (row.id == null || seenIds.has(row.id)) {
+      if (!isRecord(row) || row.id == null || seenIds.has(row.id)) {
         throw new Error(`Inconsistent ${table} pagination`);
       }
       seenIds.add(row.id);
@@ -812,15 +855,15 @@ async function loadAssessments() {
     // we fall through to the static snapshot committed at data/snapshot.json.
     try {
       if (!sb) throw new Error('Supabase client unavailable');
-      [photos, assessments] = await Promise.all([
-        fetchRows('photos', 'id, latitude, longitude, address, image_url, created_at'),
+      [photos, assessments] = await withDeadline(signal => Promise.all([
+        fetchRows('photos', 'id, latitude, longitude, address, image_url, created_at', signal),
         fetchRows('assessments', `
             id, photo_id, latitude, longitude, address, image_url, status,
             distress_types, severity, stage2_confidence, stage1_confidence,
             description, processed_at, created_at, expert_reviewed,
             expert_corrected_types, expert_corrected_severity
-          `),
-      ]);
+          `, signal),
+      ]), 15000);
       // Empty result might mean Supabase auto-paused — fall back to snapshot
       // so the WebGIS shows something on cold opens after long inactivity.
       if (photos.length === 0 && assessments.length === 0) {
@@ -829,11 +872,17 @@ async function loadAssessments() {
     } catch (supabaseErr) {
       console.warn('[GeoAI] Supabase failed, loading static snapshot fallback:',
         supabaseErr && supabaseErr.message ? supabaseErr.message : supabaseErr);
-      const snapResp = await fetch('data/snapshot.json', { cache: 'no-cache' });
-      if (!snapResp.ok) throw new Error(`snapshot HTTP ${snapResp.status}`);
-      const snap = await snapResp.json();
-      photos = Array.isArray(snap.photos) ? snap.photos : [];
-      assessments = Array.isArray(snap.assessments) ? snap.assessments : [];
+      const snap = await withDeadline(async signal => {
+        const snapResp = await fetch('data/snapshot.json', { cache: 'no-cache', signal });
+        if (!snapResp.ok) throw new Error(`snapshot HTTP ${snapResp.status}`);
+        return snapResp.json();
+      }, 10000);
+      if (!isRecord(snap) || !Array.isArray(snap.photos) || !Array.isArray(snap.assessments) ||
+          !snap.photos.every(isRecord) || !snap.assessments.every(isRecord)) {
+        throw new Error('Invalid snapshot data');
+      }
+      photos = snap.photos;
+      assessments = snap.assessments;
       source = `snapshot (${snap.fetchedAt || 'unknown'})`;
       console.log(`[GeoAI] snapshot loaded: photos=${photos.length}, assessments=${assessments.length}, frozen at ${snap.fetchedAt}`);
     }
@@ -963,7 +1012,7 @@ function isDaytime(timestampLike, lat, lng) {
 }
 
 function hasCoordinates(row) {
-  return Number.isFinite(row.latitude) && Math.abs(row.latitude) <= 90 &&
+  return isRecord(row) && Number.isFinite(row.latitude) && Math.abs(row.latitude) <= 90 &&
     Number.isFinite(row.longitude) && Math.abs(row.longitude) <= 180;
 }
 
@@ -1063,6 +1112,7 @@ function setSeverityFilter(level) {
     severityPillDot.style.background = SEVERITY_DOT_COLOR[activeSeverityFilter] || UNKNOWN_COLOR;
     severityPill.hidden = false;
     requestAnimationFrame(() => {
+      if (!activeSeverityFilter) return;
       positionSeverityPill();
       severityPill.classList.add('show');
     });
@@ -1714,7 +1764,7 @@ function buildListElement(rows) {
     const item = document.createElement('button');
     item.className = 'list-row';
     item.innerHTML = `
-      <img class="list-thumb" alt="" src="${escapeHTML(row.image_url || '')}" />
+      <img class="list-thumb" alt="" loading="lazy" decoding="async" src="${escapeHTML(row.image_url || '')}" />
       <div class="list-text">
         <div class="list-row-top">
           <span class="severity-badge" data-severity="${escapeHTML(severity)}">${escapeHTML(severity)}</span>
@@ -2156,6 +2206,7 @@ function setTimeFilter(level) {
     timePillDot.style.background = activeTimeFilter === 'day' ? '#facc15' : '#1A1A1C';
     timePill.hidden = false;
     requestAnimationFrame(() => {
+      if (!activeTimeFilter) return;
       positionSeverityPill();
       timePill.classList.add('show');
     });

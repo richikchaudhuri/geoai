@@ -681,22 +681,9 @@ class MainActivity : AppCompatActivity() {
                 val now = System.currentTimeMillis()
                 if (now - lastSampleAt < 400) return
                 lastSampleAt = now
-                val plane = image.planes[0]
-                val buf = plane.buffer
-                buf.rewind()
-                val data = ByteArray(buf.remaining())
-                buf.get(data)
-                if (data.isEmpty()) return
-                // Stride over every 8th pixel for cheap-but-stable mean
-                var sum = 0L
-                var count = 0
-                var i = 0
-                while (i < data.size) {
-                    sum += (data[i].toInt() and 0xFF)
-                    count++
-                    i += 8
-                }
-                if (count > 0) onResult((sum.toFloat() / count.toFloat()))
+                val plane = image.planes.firstOrNull() ?: return
+                LuminanceSampler.mean(plane.buffer, image.width, image.height,
+                    plane.rowStride, plane.pixelStride)?.let(onResult)
             } finally {
                 image.close()
             }
@@ -1028,40 +1015,41 @@ class MainActivity : AppCompatActivity() {
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-
-            val preview = Preview.Builder()
-                .build()
-                .also { it.surfaceProvider = binding.previewView.surfaceProvider }
-
-            imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .setFlashMode(flashMode)
-                .build()
-
-            // Lightweight luminance analyzer — reads the Y plane only at low res
-            // and at low frequency, throttled in the analyzer itself.
-            val luminanceAnalysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setResolutionSelector(
-                    ResolutionSelector.Builder()
-                        .setResolutionStrategy(
-                            ResolutionStrategy(
-                                android.util.Size(320, 240),
-                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
-                            )
-                        )
-                        .build()
-                )
-                .build()
-                .also {
-                    it.setAnalyzer(
-                        ContextCompat.getMainExecutor(this),
-                        LuminanceAnalyzer { lum -> onLuminanceUpdate(lum) }
-                    )
-                }
-
+            if (isFinishing || isDestroyed) return@addListener
             try {
+                val cameraProvider = cameraProviderFuture.get()
+
+                val preview = Preview.Builder()
+                    .build()
+                    .also { it.surfaceProvider = binding.previewView.surfaceProvider }
+
+                imageCapture = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .setFlashMode(flashMode)
+                    .build()
+
+                // Lightweight luminance analyzer — reads the Y plane only at low res
+                // and at low frequency, throttled in the analyzer itself.
+                val luminanceAnalysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .setResolutionSelector(
+                        ResolutionSelector.Builder()
+                            .setResolutionStrategy(
+                                ResolutionStrategy(
+                                    android.util.Size(320, 240),
+                                    ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER
+                                )
+                            )
+                            .build()
+                    )
+                    .build()
+                    .also {
+                        it.setAnalyzer(
+                            ContextCompat.getMainExecutor(this),
+                            LuminanceAnalyzer { lum -> onLuminanceUpdate(lum) }
+                        )
+                    }
+
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(
                     this,
@@ -1072,7 +1060,8 @@ class MainActivity : AppCompatActivity() {
                 )
                 checkFirstLaunchTutorial()
             } catch (e: Exception) {
-                Log.e(TAG, "Camera bind failed", e)
+                Log.e(TAG, "Camera initialization failed", e)
+                Toast.makeText(this, "Camera unavailable. Close and reopen the app to try again.", Toast.LENGTH_LONG).show()
             }
         }, ContextCompat.getMainExecutor(this))
     }

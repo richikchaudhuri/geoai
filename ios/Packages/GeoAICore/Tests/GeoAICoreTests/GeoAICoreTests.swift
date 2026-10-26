@@ -10,6 +10,27 @@ final class GeoAICoreTests: XCTestCase {
         try SnapshotDecoder.decode(Data(json.utf8))
     }
 
+    func testTimestampFormatsRemainCorrectDuringConcurrentDecoding() async {
+        let inputs: [(String, Date?)] = [
+            ("1970-01-01T00:00:00Z", Date(timeIntervalSince1970: 0)),
+            ("1970-01-01T05:30:00+05:30", Date(timeIntervalSince1970: 0)),
+            ("1970-01-01T00:00:00.125000Z", Date(timeIntervalSince1970: 0.125)),
+            ("invalid", nil),
+        ]
+        let correct = await withTaskGroup(of: Bool.self) { group in
+            for index in 0..<200 {
+                let (input, expected) = inputs[index % inputs.count]
+                group.addTask { parseDate(input) == expected }
+            }
+            var allCorrect = true
+            for await result in group { allCorrect = allCorrect && result }
+            return allCorrect
+        }
+        XCTAssertTrue(correct)
+        XCTAssertNil(parseDate(nil))
+        XCTAssertNil(parseDate(""))
+    }
+
     func testActualSnapshotIsReadableAndPreservesPendingPhotos() throws {
         let url = try XCTUnwrap(Bundle.module.url(forResource: "snapshot", withExtension: "json", subdirectory: "Fixtures"))
         let dataset = try SnapshotDecoder.decode(Data(contentsOf: url))

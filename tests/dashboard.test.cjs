@@ -34,7 +34,7 @@ async function boot(t, options = {}) {
     }
     now = end;
   };
-  w.HTMLCanvasElement.prototype.getContext = () => new Proxy({}, { get: () => () => {}, set: () => true });
+  w.HTMLCanvasElement.prototype.getContext = () => options.noCanvas ? null : new Proxy({}, { get: () => () => {}, set: () => true });
   w.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
   const markers = [];
   const tiles = [];
@@ -135,14 +135,17 @@ async function boot(t, options = {}) {
     return vector;
   };
   if (options.cache) w.localStorage.setItem('geoai:dataCache:v4', JSON.stringify({ data: options.cache, timestamp: Date.now() - 11 * 60 * 1000 }));
+  if (options.cacheEntry) w.localStorage.setItem('geoai:dataCache:v4', JSON.stringify(options.cacheEntry));
   if (options.style) w.localStorage.setItem('mapStyle', options.style);
   if (options.storageDisabled) Object.defineProperty(w, 'localStorage', { get() { throw new Error('Storage disabled'); } });
   const tables = options.tables || { photos: [photo], assessments: [assessment] };
   const requests = [];
   if (!options.noSupabase) {
     w.supabase = { createClient: () => ({ from(table) {
-      return { select() { return this; }, order() { return this; }, async range(start, end) {
-        requests.push({ table, start, end });
+      let signal;
+      return { select() { return this; }, order() { return this; }, abortSignal(value) { signal = value; return this; }, async range(start, end) {
+        requests.push({ table, start, end, signal });
+        if (options.range) return options.range({ table, start, end, signal });
         if (table === options.errorTable) return { data: null, error: new Error('Temporary failure') };
         if (options.repeatPage) return { data: tables[table].slice(0, 1), error: null };
         return { data: tables[table].slice(start, Math.min(end + 1, start + (options.cap || 1000))), error: null };
@@ -155,7 +158,7 @@ async function boot(t, options = {}) {
   });
   const context = dom.getInternalVMContext();
   vm.runInContext(source.replace(/loadAssessments\(\);\s*$/, 'window.initialLoad = loadAssessments();'), context);
-  await w.initialLoad;
+  if (!options.pendingLoad) await w.initialLoad;
   return { w, advance, markers, requests, tiles, rasters, vectors, removed, activeLayers, frameCallbacks, cancelledFrames, transforms, read: code => vm.runInContext(code, context) };
 }
 
@@ -658,11 +661,11 @@ function deferred() {
 test('slow search JSON cannot overwrite newer search results', async t => {
   const app = await boot(t);
   const oldJSON = deferred();
-  app.w.fetch = async url => ({ ok: true, json: () => url.includes('old') ? oldJSON.promise : Promise.resolve([{ display_name: 'New result, India' }]) });
+  app.w.fetch = async url => ({ ok: true, json: () => url.includes('old') ? oldJSON.promise : Promise.resolve([{ display_name: 'New result, India', lat: '12.97', lon: '77.59' }]) });
   const first = app.w.runSearch('old');
   await Promise.resolve();
   await app.w.runSearch('new');
-  oldJSON.resolve([{ display_name: 'Old result, India' }]);
+  oldJSON.resolve([{ display_name: 'Old result, India', lat: '12.97', lon: '77.59' }]);
   await first;
   assert.match(app.w.document.getElementById('searchResults').textContent, /New result/);
 });
@@ -670,7 +673,7 @@ test('slow search JSON cannot overwrite newer search results', async t => {
 test('old search failure cannot erase newer results, and closing cancels pending input', async t => {
   const app = await boot(t);
   const old = deferred();
-  app.w.fetch = url => url.includes('old') ? old.promise : Promise.resolve({ ok: true, json: async () => [{ display_name: 'New result' }] });
+  app.w.fetch = url => url.includes('old') ? old.promise : Promise.resolve({ ok: true, json: async () => [{ display_name: 'New result', lat: '12.97', lon: '77.59' }] });
   const first = app.w.runSearch('old');
   await app.w.runSearch('new');
   old.reject(new Error('offline'));
@@ -713,4 +716,142 @@ test('clearing and quickly reapplying filters keeps the active pills visible', a
   app.advance(400);
   assert.equal(app.w.document.getElementById('severityPill').hidden, false);
   assert.equal(app.w.document.getElementById('timePill').hidden, false);
+});
+
+test('a browser without 2D canvas still loads data and dismisses the loading screen', async t => {
+  const app = await boot(t, { noCanvas: true });
+  assert.equal(app.read('LoadingScreen.canvasAvailable'), false);
+  assert.equal(app.markers.length, 1);
+  app.advance(1500);
+  assert.equal(app.w.document.getElementById('loadingScreen').classList.contains('done'), true);
+});
+
+test('completed loading animation releases its canvas and ignores later window resizes', async t => {
+  const app = await boot(t);
+  const canvas = app.w.document.getElementById('loadingCanvas');
+  assert.ok(canvas.width > 0);
+  app.advance(2200);
+  assert.equal(canvas.width, 0);
+  assert.equal(canvas.height, 0);
+  app.w.dispatchEvent(new app.w.Event('resize'));
+  assert.equal(canvas.width, 0);
+});
+
+test('clearing filters before the next animation frame cannot resurrect their pills', async t => {
+  const app = await boot(t);
+  app.w.setSeverityFilter('High');
+  app.w.setTimeFilter('night');
+  app.w.setSeverityFilter(null);
+  app.w.setTimeFilter(null);
+  app.advance(400);
+  for (const id of ['severityPill', 'timePill']) {
+    const pill = app.w.document.getElementById(id);
+    assert.equal(pill.hidden, true);
+    assert.equal(pill.classList.contains('show'), false);
+  }
+});
+
+for (const [name, cacheEntry] of [
+  ['null row', { data: [null], timestamp: Date.now() }],
+  ['array row', { data: [[]], timestamp: Date.now() }],
+  ['future timestamp', { data: [], timestamp: Date.now() + 86400000 }],
+  ['text timestamp', { data: [], timestamp: 'invalid' }],
+]) {
+  test(`invalid cached ${name} does not prevent loading current assessments`, async t => {
+    const app = await boot(t, { cacheEntry });
+    assert.ok(app.requests.length > 0);
+    assert.equal(app.read('allMergedRows.length'), 1);
+    assert.equal(app.markers.length, 1);
+  });
+}
+
+test('mixed type labels cannot crash card rendering or location lists', async t => {
+  const app = await boot(t);
+  const row = { ...assessment, distress_types: [null, 42, {}, '', 'Pothole (D40)'] };
+  app.w.showCards([row]);
+  const list = app.w.buildListElement([row]);
+  assert.equal(list.querySelectorAll('.list-type').length, 1);
+  assert.equal(list.querySelector('.list-type').textContent, 'Pothole');
+  assert.equal(app.w.effectiveTypes({ ...row, expert_reviewed: true, expert_corrected_types: [null] }).length, 0);
+  assert.equal(app.w.hasCoordinates(null), false);
+});
+
+test('malformed live rows use the snapshot instead of breaking the dashboard', async t => {
+  const app = await boot(t, { tables: { photos: [null], assessments: [assessment] } });
+  assert.equal(app.read('allMergedRows.length'), 1);
+  assert.equal(app.read('Cache.read()'), null);
+});
+
+test('malformed snapshots leave usable cached markers on screen', async t => {
+  const app = await boot(t, { cache: [assessment], noSupabase: true,
+    fetch: async () => ({ ok: true, json: async () => ({ photos: [null], assessments: [] }) }) });
+  assert.equal(app.markers.length, 1);
+  assert.match(app.w.document.getElementById('status').textContent, /cached.*network error/);
+});
+
+test('hung live requests abort together and reach snapshot fallback after the deadline', async t => {
+  const app = await boot(t, { pendingLoad: true, range: () => new Promise(() => {}) });
+  assert.equal(app.requests.length, 2);
+  app.advance(15000);
+  await app.w.initialLoad;
+  assert.equal(app.requests.every(request => request.signal.aborted), true);
+  assert.equal(app.read('allMergedRows.length'), 1);
+  assert.equal(app.read('Cache.read()'), null);
+});
+
+test('a failed live table cancels its still-running sibling without waiting for timeout', async t => {
+  const app = await boot(t, { range: ({ table }) => table === 'photos'
+    ? Promise.resolve({ data: null, error: new Error('offline') }) : new Promise(() => {}) });
+  assert.equal(app.requests.every(request => request.signal.aborted), true);
+  assert.equal(app.read('allMergedRows.length'), 1);
+});
+
+test('a stalled snapshot response body times out while keeping cached data', async t => {
+  let snapshotSignal;
+  const app = await boot(t, { pendingLoad: true, noSupabase: true, cache: [assessment],
+    fetch: async (_, options) => { snapshotSignal = options.signal; return { ok: true, json: () => new Promise(() => {}) }; } });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  app.advance(10000);
+  await app.w.initialLoad;
+  assert.equal(snapshotSignal.aborted, true);
+  assert.equal(app.markers.length, 1);
+  assert.match(app.w.document.getElementById('status').textContent, /network error/);
+});
+
+test('late live responses cannot replace the snapshot after timing out', async t => {
+  const pending = deferred();
+  const app = await boot(t, { pendingLoad: true, range: () => pending.promise });
+  app.advance(15000);
+  await app.w.initialLoad;
+  pending.resolve({ data: [{ ...photo, id: 'late' }], error: null });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.equal(app.read('allMergedRows[0].id'), 'a1');
+  assert.equal(app.read('Cache.read()'), null);
+});
+
+test('search skips malformed coordinates and falls back from invalid bounds to a valid point', async t => {
+  const app = await boot(t);
+  app.w.renderResults([null, {}, { display_name: 'Bad', lat: '', lon: '0' },
+    { display_name: 'Bad', lat: '12oops', lon: '77' }, { display_name: 'Bad', lat: '91', lon: '0' },
+    { display_name: 'Valid place', lat: '0', lon: '0', boundingbox: ['no', '1', '0', '1'] }]);
+  assert.equal(app.w.document.querySelectorAll('.result').length, 1);
+  app.w.document.querySelector('.result').click();
+  assert.equal(app.w.document.getElementById('searchInput').value, 'Valid place');
+  assert.deepEqual([...app.markers.at(-1).point], [0, 0]);
+  assert.doesNotThrow(() => app.w.selectResult({ display_name: 'Broken', lat: 'Infinity', lon: '0' }));
+});
+
+test('stalled search is aborted without overwriting a newer completed query', async t => {
+  const app = await boot(t);
+  let oldSignal;
+  app.w.fetch = (url, options) => url.includes('old') ? new Promise((_, reject) => {
+    oldSignal = options.signal;
+    oldSignal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+  }) : Promise.resolve({ ok: true, json: async () => [{ display_name: 'New place', lat: '12', lon: '77' }] });
+  const old = app.w.runSearch('old');
+  app.advance(10000);
+  await old;
+  assert.equal(oldSignal.aborted, true);
+  await app.w.runSearch('new');
+  assert.match(app.w.document.getElementById('searchResults').textContent, /New place/);
 });

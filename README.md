@@ -217,6 +217,11 @@ If Supabase is unreachable — network blocked, project paused, RLS
 rejected — the WebGIS automatically falls back to that file and
 renders the snapshot dataset instead.
 
+Live table reads share a 15-second deadline; snapshot and search requests have
+10-second deadlines. Failed or malformed refreshes retain usable cached data.
+Markers use Leaflet's canvas renderer when available to avoid creating a DOM
+element per point, and list thumbnails load lazily.
+
 The snapshot is regenerated weekly by a GitHub Actions workflow
 ([`.github/workflows/refresh-snapshot.yml`](.github/workflows/refresh-snapshot.yml))
 which runs the `geoai-snapshot` Rust tool against the live Supabase

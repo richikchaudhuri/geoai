@@ -78,7 +78,7 @@ line. PowerShell does **not** accept `\` as a line continuation.
 | `--geocode` | off | Enable Nominatim reverse-geocoding (throttled to 1 req/sec). |
 | `--state-file` | `.geoai-import-state.json` | Path to the JSON state file (dedup + geocode cache). |
 | `--no-resume` | off | Ignore the state file on startup. Still writes to it on success. |
-| `--retries` | 2 | Retries per request on transient failures (network, 5xx, 429). |
+| `--retries` | 2 | Retries on safely repeatable transient failures; uncertain photo inserts are reconciled instead. |
 
 ## Pipeline
 
@@ -128,13 +128,19 @@ For each record:
 
 **Retry rules:**
 
-- **Transient** errors (network, HTTP 5xx, HTTP 429) → retry up to
+- **Cloudinary transient** errors (network, HTTP 5xx, HTTP 429) → retry up to
   `--retries` times with exponential backoff (1s, 2s, 4s, …).
+- **Supabase** retries connection failures before submission and HTTP 429.
+  After an ambiguous network failure or HTTP 5xx, it checks `photos.image_url`
+  for the uploaded image. A visible receipt confirms success. Otherwise it
+  stops that image with an actionable error; check the reported URL in the
+  database before rerunning, because a missing receipt does not prove the
+  insert failed.
 - **Fatal** errors (4xx other than 429, malformed responses) → fail
   immediately for that file. The rest of the batch continues.
-- After each successful upload the state file is rewritten atomically
-  (tmp + rename), so a Ctrl-C mid-run loses at most one image worth of
-  progress.
+- After each confirmed upload the state file is rewritten atomically
+  (tmp + rename). A crash can still interrupt remote writes before the
+  local journal records them, including other uploads already in flight.
 
 ## State file format
 
@@ -191,6 +197,11 @@ Stage 3: uploading (concurrency=8, retries=2)
 
 ## Limitations
 
+- **No cross-process/server idempotency key.** Receipt reconciliation prevents
+  blind retries within a run, but cannot guarantee deduplication after a crash
+  or between simultaneous import processes. A lost Cloudinary response can
+  also leave an unused remote image. Keep the journal and review uncertain
+  outcomes before rerunning.
 - **Re-running on the same folder with `--no-resume` re-uploads every
   file.** Cloudinary will issue a fresh URL each time. This is expected
   behaviour — `--no-resume` is for forcing a clean import.
