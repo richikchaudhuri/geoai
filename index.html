@@ -10,10 +10,13 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
         crossorigin="" />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"
+        integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK"
+        crossorigin="" />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="alternate icon" href="favicon.svg" />
   <link rel="apple-touch-icon" href="favicon.svg" />
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=4" />
 </head>
 <body>
 
@@ -70,7 +73,7 @@
           <button class="settings-option active" data-style="light">Light</button>
           <button class="settings-option" data-style="dark">Dark</button>
           <button class="settings-option" data-style="voyager">Voyager</button>
-          <button class="settings-option" data-style="satellite">Satellite</button>
+          <button class="settings-option" data-style="satellite" title="Free Sentinel-2 imagery from 2016; lower detail at street zoom">Satellite</button>
           <button class="settings-option" data-style="backdrop">Minimal</button>
           <button class="settings-option" data-style="toner">Toner</button>
         </div>
@@ -132,6 +135,7 @@
 
   <main>
     <div id="map"></div>
+    <div class="map-notice" id="mapNotice" role="status" hidden></div>
 
     <svg class="card-connectors" id="cardConnectors" aria-hidden="true"></svg>
     <div class="card-stack" id="cardStack"></div>
@@ -209,7 +213,8 @@
             <span class="about-chip">Supabase Postgres</span>
             <span class="about-chip">Cloudinary</span>
             <span class="about-chip">Leaflet</span>
-            <span class="about-chip">MapTiler</span>
+            <span class="about-chip">OpenFreeMap</span>
+            <span class="about-chip">EOxCloudless</span>
             <span class="about-chip">A5000 GPU</span>
           </div>
         </section>
@@ -353,7 +358,13 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
           crossorigin=""></script>
+  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"
+          integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp"
+          crossorigin=""></script>
+  <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js"
+          integrity="sha384-tXYNKOHx4T02jMP7YYCtBxPIv1B5gaA5mcVPBzqMp6d7VzWzxJgI2aWF/nJLrQdS"
+          crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

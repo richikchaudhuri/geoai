@@ -93,19 +93,24 @@ Vanilla HTML/CSS/JS — **no build step**. Drop the repo onto Netlify or push to
 
 ### Tech
 
-`Leaflet 1.9` · `MapTiler` · `Supabase JS v2` · `Nominatim` · vanilla ES2020
+`Leaflet 1.9` · `MapLibre GL JS` · `OpenFreeMap` · `EOxCloudless` · `Supabase JS v2` · `Nominatim` · vanilla ES2020
 
 ### Configuration
 
 Edit the top of [`app.js`](app.js):
 
 ```js
-const MAPTILER_KEY        = 'YOUR_MAPTILER_KEY';
 const SUPABASE_URL        = 'https://your-project.supabase.co';
 const SUPABASE_ANON_KEY   = 'YOUR_ANON_JWT';
 ```
 
-The anon key is safe in the browser as long as Supabase RLS is configured. The MapTiler key should be locked to your deployed origin in the MapTiler dashboard.
+The anon key is safe in the browser as long as Supabase RLS is configured. **No map API key or map account is required.**
+
+The five street styles use [OpenFreeMap](https://openfreemap.org/) vector tiles through MapLibre's Leaflet bridge. Minimal hides labels; Toner applies a monochrome treatment to the basemap only. Satellite combines street labels with the free [EOxCloudless Sentinel-2 2016 mosaic](https://cloudless.eox.at/documentation/faq), licensed CC BY 4.0. This imagery is about 10 m resolution, with native tiles through zoom 14; closer zooms enlarge the existing imagery rather than requesting unavailable tiles. It is older and less detailed than commercial aerial imagery.
+
+If vector rendering is unavailable, street styles fall back to the standard OpenStreetMap raster map; satellite keeps its imagery without labels. Free public services offer no uptime guarantee. Keep the visible provider attribution and follow the [OSM tile policy](https://operations.osmfoundation.org/policies/tiles/) and EOX fair-use terms; do not add bulk downloading or prefetching.
+
+Serve the dashboard over HTTP(S), including for local use (`python3 -m http.server 8000`, then open `http://localhost:8000`). Opening `index.html` directly as `file://` prevents snapshot requests and cannot supply the HTTP Referer required by the raster fallback. The site still needs no build step.
 
 ---
 

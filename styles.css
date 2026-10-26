@@ -968,7 +968,7 @@ body.chrome-dark .severity-pill .severity-pill-close:hover { background: rgba(25
 @media (max-width: 820px) {
   .severity-pill {
     top: auto;
-    bottom: 80px;
+    bottom: calc(80px + var(--map-attribution-height, 16px));
     left: 16px !important;
     right: 16px;
     padding: 8px 6px 8px 14px;
@@ -1973,6 +1973,23 @@ body.chrome-dark .settings-option.active {
 }
 body.chrome-dark .settings-option.active::after { background: #1A1A1C; }
 
+.map-vector-basemap { z-index: 2; pointer-events: none; }
+.map-monochrome { filter: grayscale(1) contrast(1.8); }
+.leaflet-control-attribution { max-width: min(600px, calc(100vw - 20px)); }
+.map-notice {
+  position: absolute;
+  z-index: 500;
+  left: 20px;
+  bottom: calc(70px + var(--map-attribution-height, 16px));
+  max-width: min(360px, calc(100vw - 80px));
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #333;
+  font-size: 13px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+
 body.chrome-dark .leaflet-control-zoom a {
   background: rgba(20, 20, 22, 0.72);
   color: #FFFFFF;
@@ -2027,7 +2044,7 @@ body.chrome-dark .detail-photo-wrap { background: rgba(255, 255, 255, 0.06); }
   body.chrome-dark .brand-geo { -webkit-text-stroke-color: #FFFFFF; }
   .brand-ai { font-size: 24px; }
   .nav-pill { padding: 6px; }
-  .status-chip { bottom: 20px; left: 20px; padding: 10px 16px; font-size: 13px; }
+  .status-chip { bottom: calc(20px + var(--map-attribution-height, 16px)); left: 20px; padding: 10px 16px; font-size: 13px; }
   .detail-panel { width: 280px; }
   .detail-photo-wrap { width: 100px; border-radius: 18px 0 0 18px; }
   .detail-body { padding: 12px 14px; padding-right: 44px; }

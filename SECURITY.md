@@ -32,8 +32,8 @@ A few things that *look* like vulnerabilities but are intentional:
 - **Cloudinary unsigned upload preset** — also by design. The preset
   restricts which transformations and folders are allowed; it can't
   delete or read existing assets.
-- **MapTiler API key in client JS** — needs to be public to fetch tiles.
-  It's restricted to the deployed origin via the MapTiler dashboard.
+- **Public map sources** — OpenFreeMap, EOxCloudless and the OpenStreetMap
+  raster fallback require no API key. Provider attribution stays visible.
 
 If you find a way these *aren't* sufficient (e.g., RLS bypass, preset
 abuse, key leakage to an unintended domain), we definitely want to hear

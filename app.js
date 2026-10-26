@@ -197,8 +197,6 @@ const LoadingScreen = (() => {
   return { setStage, finish };
 })();
 
-const MAPTILER_KEY = 'W0xPGqC6BW5yhLWJ0C9A';
-
 const SUPABASE_URL = 'https://vtlkitpoffudiefuoijb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0bGtpdHBvZmZ1ZGllZnVvaWpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMDAzMjIsImV4cCI6MjA4OTc3NjMyMn0.wLrwTky4k8iAELOvFbNeo063Z1rjQKOzzq3QYFqR6CU';
 
@@ -231,39 +229,26 @@ const SEVERITY_COLOR = {
 };
 
 const MAP_STYLES = {
-  light: {
-    dark: false,
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    options: { maxZoom: 20, subdomains: 'abcd', attribution: '&copy; OpenStreetMap &copy; CARTO' },
-  },
-  dark: {
-    dark: true,
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    options: { maxZoom: 20, subdomains: 'abcd', attribution: '&copy; OpenStreetMap &copy; CARTO' },
-  },
-  voyager: {
-    dark: false,
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    options: { maxZoom: 20, subdomains: 'abcd', attribution: '&copy; OpenStreetMap &copy; CARTO' },
-  },
+  light: { dark: false, vector: 'positron' },
+  dark: { dark: true, vector: 'dark' },
+  voyager: { dark: false, vector: 'liberty' },
   satellite: {
     dark: true,
-    url: `https://api.maptiler.com/maps/hybrid-v4/{z}/{x}/{y}{r}.png?key=${MAPTILER_KEY}`,
-    options: { maxZoom: 22, tileSize: 512, zoomOffset: -1, crossOrigin: true,
-               attribution: '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; OSM' },
+    vector: 'dark',
+    labelsOnly: true,
+    url: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/GoogleMapsCompatible/{z}/{y}/{x}.jpg',
+    options: {
+      maxNativeZoom: 14, maxZoom: 22, tileSize: 256,
+      attribution: '<a href="https://cloudless.eox.at">EOxCloudless</a> by <a href="https://eox.at">EOX IT Services GmbH</a> (Contains modified Copernicus Sentinel data 2016), <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>',
+    },
   },
-  backdrop: {
-    dark: false,
-    url: `https://api.maptiler.com/maps/backdrop-v4/{z}/{x}/{y}{r}.png?key=${MAPTILER_KEY}`,
-    options: { maxZoom: 22, tileSize: 512, zoomOffset: -1, crossOrigin: true,
-               attribution: '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; OSM' },
-  },
-  toner: {
-    dark: false,
-    url: `https://api.maptiler.com/maps/toner-v2/{z}/{x}/{y}{r}.png?key=${MAPTILER_KEY}`,
-    options: { maxZoom: 22, tileSize: 512, zoomOffset: -1, crossOrigin: true,
-               attribution: '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; OSM' },
-  },
+  backdrop: { dark: false, vector: 'positron', hideLabels: true },
+  toner: { dark: false, vector: 'positron', monochrome: true },
+};
+const STREET_ATTRIBUTION = '<a href="https://openfreemap.org">OpenFreeMap</a> &copy; <a href="https://openmaptiles.org">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const FALLBACK_MAP = {
+  url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  options: { maxNativeZoom: 19, maxZoom: 22, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' },
 };
 
 LoadingScreen.setStage(0); // Initialising map
@@ -271,13 +256,24 @@ LoadingScreen.setStage(0); // Initialising map
 const map = L.map('map', {
   zoomControl: false,
   attributionControl: true,
+  minZoom: 1,
+  maxZoom: 22,
 }).setView(BENGALURU, 12);
 
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
+// Long satellite credits wrap on small screens; keep status/filter chips clear.
+const attributionElement = map.attributionControl?.getContainer();
+if (attributionElement) {
+  new ResizeObserver(([entry]) => {
+    document.documentElement.style.setProperty('--map-attribution-height', `${Math.ceil(entry.contentRect.height)}px`);
+  }).observe(attributionElement);
+}
+
 LoadingScreen.setStage(1); // Loading basemap tiles
 
-let currentTileLayer = null;
+let currentBasemap = null;
+const mapNotice = document.getElementById('mapNotice');
 let currentStyle = 'light';
 try {
   const savedStyle = localStorage.getItem('mapStyle');
@@ -285,18 +281,160 @@ try {
 } catch (_) { /* Storage can be disabled in private or embedded browsers. */ }
 
 function setMapStyle(styleKey) {
+  if (!Object.prototype.hasOwnProperty.call(MAP_STYLES, styleKey)) return;
   const style = MAP_STYLES[styleKey];
-  if (!style) return;
-  if (currentTileLayer) map.removeLayer(currentTileLayer);
-  currentTileLayer = L.tileLayer(style.url, style.options);
-  currentTileLayer.once('load', () => LoadingScreen.setStage(2));
-  currentTileLayer.addTo(map);
+  if (currentBasemap) {
+    clearTimeout(currentBasemap.timer);
+    if (currentBasemap.vector) map.removeLayer(currentBasemap.vector);
+    if (currentBasemap.raster) map.removeLayer(currentBasemap.raster);
+  }
+  const basemap = currentBasemap = { vector: null, raster: null, timer: null };
+  mapNotice.hidden = true;
   currentStyle = styleKey;
   try { localStorage.setItem('mapStyle', styleKey); } catch (_) {}
   document.body.classList.toggle('chrome-dark', !!style.dark);
   document.querySelectorAll('.settings-option').forEach((el) => {
     el.classList.toggle('active', el.dataset.style === styleKey);
   });
+
+  function addRaster(source) {
+    const raster = basemap.raster = L.tileLayer(source.url, source.options);
+    let loadedTiles = 0, failedTiles = 0;
+    raster.on('loading', () => { loadedTiles = 0; failedTiles = 0; });
+    raster.on('tileload', () => loadedTiles++);
+    raster.on('tileerror', () => failedTiles++);
+    raster.on('load', () => {
+      if (currentBasemap !== basemap || basemap.raster !== raster) return;
+      if (failedTiles && !loadedTiles) {
+        if (source === FALLBACK_MAP) {
+          mapNotice.textContent = 'Map tiles could not load. Check your connection and try another map style.';
+          mapNotice.hidden = false;
+        } else {
+          setTimeout(() => {
+            if (basemap.raster === raster) fallback(true);
+          }, 0);
+        }
+      } else {
+        LoadingScreen.setStage(2);
+      }
+    });
+    raster.addTo(map);
+  }
+  function fallback(imageryFailed = false) {
+    if (currentBasemap !== basemap) return;
+    clearTimeout(basemap.timer);
+    if (basemap.vector) map.removeLayer(basemap.vector);
+    basemap.vector = null;
+    if (style.labelsOnly && !imageryFailed) {
+      mapNotice.textContent = 'Street labels could not load over the satellite imagery.';
+    } else if (/^https?:$/.test(location.protocol)) {
+      if (imageryFailed && basemap.raster) {
+        map.removeLayer(basemap.raster);
+        basemap.raster = null;
+      }
+      if (!basemap.raster) addRaster(FALLBACK_MAP);
+      document.body.classList.remove('chrome-dark');
+      mapNotice.textContent = 'This map style is unavailable. Showing the standard street map.';
+    } else {
+      // OSM requires an HTTP Referer, which file:// pages cannot provide.
+      mapNotice.textContent = 'Open this dashboard through a local web server to load the fallback map.';
+    }
+    mapNotice.hidden = false;
+  }
+
+  if (style.url) addRaster(style);
+  if (typeof L.maplibreGL !== 'function' || !window.maplibregl) {
+    fallback();
+    return;
+  }
+  try {
+    const vector = basemap.vector = L.maplibreGL({
+      style: `https://tiles.openfreemap.org/styles/${style.vector}`,
+      attributionControl: { customAttribution: STREET_ATTRIBUTION },
+    });
+    // The bridge can fail during onAdd when WebGL is disabled. Still let
+    // Leaflet unregister the layer and remove its partially created container.
+    const removeVector = vector.onRemove;
+    vector.onRemove = function (map) {
+      L.Util.cancelAnimFrame(this.transitionFrame);
+      if (this.getMaplibreMap()) removeVector.call(this, map);
+      else this.getContainer()?.remove();
+    };
+    // Bridge 0.1.4 leaves this animation frame alive after layer removal.
+    // Keep its transition logic, but cancel/guard work for disposed layers.
+    vector._transitionEnd = function () {
+      L.Util.cancelAnimFrame(this.transitionFrame);
+      this.transitionFrame = L.Util.requestAnimFrame(() => {
+        const gl = this.getMaplibreMap();
+        if (!this._map || !gl) return;
+        const zoom = this._map.getZoom();
+        const center = this._map.getCenter();
+        const offset = this._map.latLngToContainerPoint(this._map.getBounds().getNorthWest());
+        this._resizeContainer();
+        L.DomUtil.setTransform(gl._actualCanvas, offset, 1);
+        gl.once('moveend', () => {
+          if (this._map && this.getMaplibreMap() === gl) this._zoomEnd();
+        });
+        gl.jumpTo({ center, zoom: zoom - 1 });
+      });
+    };
+    vector.addTo(map);
+    const container = vector.getContainer();
+    container.classList.add('map-vector-basemap');
+    container.classList.toggle('map-monochrome', !!style.monochrome);
+    if (style.labelsOnly) container.style.opacity = '0';
+    const gl = vector.getMaplibreMap();
+    let mapLoaded = false;
+    let requiredSources = null;
+    const loadedSources = new Set();
+    function finishVectorLoad() {
+      if (currentBasemap !== basemap || basemap.vector !== vector) return;
+      if (mapLoaded && requiredSources && requiredSources.every(id => loadedSources.has(id))) {
+        clearTimeout(basemap.timer);
+        LoadingScreen.setStage(2);
+      }
+    }
+    gl.on('sourcedata', (event) => {
+      // `load` also fires when all tiles fail. A tile coordinate on sourcedata
+      // proves a tile decoded successfully, even if it contains no features.
+      if (event.coord && event.sourceId) loadedSources.add(event.sourceId);
+      finishVectorLoad();
+    });
+    gl.once('style.load', () => {
+      if (currentBasemap !== basemap || basemap.vector !== vector) return;
+      requiredSources = Object.entries(gl.getStyle().sources)
+        .filter(([, source]) => source.type === 'vector').map(([id]) => id);
+      for (const layer of gl.getStyle().layers) {
+        if ((style.labelsOnly && layer.type !== 'symbol') || (style.hideLabels && layer.type === 'symbol')) {
+          gl.setLayoutProperty(layer.id, 'visibility', 'none');
+        }
+        if (style.labelsOnly && layer.type === 'symbol' && layer.layout?.['text-field']) {
+          gl.setPaintProperty(layer.id, 'text-color', '#ffffff');
+          gl.setPaintProperty(layer.id, 'text-halo-color', '#202024');
+          gl.setPaintProperty(layer.id, 'text-halo-width', 1.5);
+        }
+      }
+      container.style.opacity = '1';
+      finishVectorLoad();
+    });
+    gl.once('load', () => {
+      mapLoaded = true;
+      finishVectorLoad();
+    });
+    // Individual tile/glyph errors can recover. Only abandon a map that
+    // never finishes loading, or loses its graphics context entirely.
+    basemap.timer = setTimeout(fallback, 20000);
+    gl.once('webglcontextlost', () => {
+      if (currentBasemap !== basemap || basemap.vector !== vector) return;
+      clearTimeout(basemap.timer);
+      setTimeout(() => {
+        if (basemap.vector === vector) fallback();
+      }, 0);
+    });
+  } catch (error) {
+    console.warn('Vector basemap unavailable:', error);
+    fallback();
+  }
 }
 
 setMapStyle(currentStyle);
