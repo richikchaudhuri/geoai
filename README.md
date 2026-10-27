@@ -6,7 +6,7 @@
 
 *Citizens snap photos of damaged roads — AI classifies each one — civic authorities see hotspots in real time.*
 
-**[Open the updated dashboard preview](https://deploy-preview-2--gisgeoai.netlify.app/)** · [Review these changes](https://github.com/richikchaudhuri/geoai/pull/2)
+**[Open the dashboard](https://gisgeoai.netlify.app/)**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-FACC15.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android%20%7C%20iOS-22C55E?style=flat-square)](#)
@@ -64,7 +64,7 @@ flowchart LR
 
 Vanilla HTML/CSS/JS — **no build step**. Drop the repo onto Netlify or push to GitHub Pages and you're live.
 
-The [hosted review preview](https://deploy-preview-2--gisgeoai.netlify.app/) updates with pull request #2 and can be opened without a local server. It includes the free street maps and satellite imagery; no map API key is required.
+The [hosted dashboard](https://gisgeoai.netlify.app/) can be opened without a local server. It includes free street maps and satellite imagery; no map API key is required.
 
 ### What's in it
 
@@ -189,15 +189,15 @@ geoai/
 
 ## 🚀 Deploy
 
-The WebGIS lives on **GitHub Pages** — free forever, whitelisted on every
-institutional network, zero build step. Push to `main`, site goes live.
+The production WebGIS is hosted on **Netlify**. Its connected Git deployment
+publishes the static site from `main`, with no build step.
 
-**Live URL:** `https://richikchaudhuri.github.io/geoai`
+**Live URL:** [gisgeoai.netlify.app](https://gisgeoai.netlify.app/)
 
-### One-time setup
+### Optional GitHub Pages deployment
 
 1. In this repo: **Settings → Pages → Source: `main` branch, `/ (root)` → Save**.
-2. Wait ~60s. Site is live at the URL above.
+2. After deployment, open [richikchaudhuri.github.io/geoai](https://richikchaudhuri.github.io/geoai/).
 3. Every subsequent `git push origin main` triggers an auto-redeploy.
 
 That's it. No build command, no publish directory config, no env vars.
