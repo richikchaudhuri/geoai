@@ -6,6 +6,8 @@
 
 *Citizens snap photos of damaged roads — AI classifies each one — civic authorities see hotspots in real time.*
 
+**[Open the updated dashboard preview](https://deploy-preview-2--gisgeoai.netlify.app/)** · [Review these changes](https://github.com/richikchaudhuri/geoai/pull/2)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-FACC15.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android%20%7C%20iOS-22C55E?style=flat-square)](#)
 [![Stack](https://img.shields.io/badge/stack-Leaflet%20%7C%20Supabase%20%7C%20Kotlin-DC2626?style=flat-square)](#stack)
@@ -61,6 +63,8 @@ flowchart LR
 ## 🗺️ Web Dashboard
 
 Vanilla HTML/CSS/JS — **no build step**. Drop the repo onto Netlify or push to GitHub Pages and you're live.
+
+The [hosted review preview](https://deploy-preview-2--gisgeoai.netlify.app/) updates with pull request #2 and can be opened without a local server. It includes the free street maps and satellite imagery; no map API key is required.
 
 ### What's in it
 
