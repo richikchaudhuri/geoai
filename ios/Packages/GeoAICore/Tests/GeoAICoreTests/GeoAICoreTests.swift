@@ -6,6 +6,68 @@ import FoundationNetworking
 #endif
 
 final class GeoAICoreTests: XCTestCase {
+    func testSurveyEndpointRequiresExplicitSecureAddress() throws {
+        XCTAssertThrowsError(try SurveyEndpoint(""))
+        XCTAssertThrowsError(try SurveyEndpoint("not-a-url"))
+        XCTAssertThrowsError(try SurveyEndpoint("http://survey.example/gis/app/"))
+        XCTAssertThrowsError(try SurveyEndpoint("https://user:password@survey.example/gis/app/"))
+        XCTAssertThrowsError(try SurveyEndpoint("file:///etc/passwd"))
+        XCTAssertThrowsError(try SurveyEndpoint("javascript:alert(1)"))
+        XCTAssertThrowsError(try SurveyEndpoint("https://survey.example:70000/gis/app/"))
+        XCTAssertThrowsError(try SurveyEndpoint("https://survey.example/space here"))
+        XCTAssertNoThrow(try SurveyEndpoint("  https://survey.example/gis/app/  "))
+    }
+
+    func testSurveyEndpointOnlyAllowsLoopbackHTTPInExplicitDebugMode() throws {
+        XCTAssertThrowsError(try SurveyEndpoint("http://127.0.0.1:8765/gis/app/"))
+        XCTAssertThrowsError(try SurveyEndpoint("http://192.168.1.2:8765/gis/app/", allowLoopbackHTTP: true))
+        for host in ["localhost", "127.0.0.1", "[::1]"] {
+            XCTAssertNoThrow(try SurveyEndpoint("http://\(host):8765/gis/app/", allowLoopbackHTTP: true))
+        }
+    }
+
+    func testSurveyEndpointPreservesViewAndReplacesOnlyVideoOption() throws {
+        let endpoint = try SurveyEndpoint("https://survey.example/gis/app/?session=drive%20one&video=0&video=0#view")
+        let parts = try XCTUnwrap(URLComponents(url: endpoint.initialVideoURL, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(parts.fragment, "view")
+        XCTAssertEqual(parts.queryItems?.filter { $0.name == "video" }.map(\.value), ["1"])
+        XCTAssertEqual(parts.queryItems?.first { $0.name == "session" }?.value, "drive one")
+    }
+
+    func testSurveyDownloadsRejectOriginEscapes() throws {
+        let endpoint = try SurveyEndpoint("https://survey.example/gis/app/")
+        XCTAssertNotNil(endpoint.resourceURL("/gis/video/segments.csv?severity=High"))
+        XCTAssertNotNil(endpoint.resourceURL("https://survey.example:443/gis/image/id"))
+        for address in ["https://survey.example.evil/gis/video/segments.csv", "https://evil.example/", "//evil.example/", "http://survey.example/", "https://survey.example:444/", "https://user@survey.example/", "file:///private/photo.jpg", "data:text/csv,secret", "javascript:alert(1)"] {
+            XCTAssertNil(endpoint.resourceURL(address))
+        }
+    }
+
+    func testSurveyBrowserPreviewsAllowOnlyHTTPSOrConfiguredDebugLoopback() throws {
+        let production = try SurveyEndpoint("https://survey.example/gis/app/")
+        XCTAssertTrue(production.canOpenInBrowser(try XCTUnwrap(URL(string: "https://images.example/road.jpg"))))
+        XCTAssertFalse(production.canOpenInBrowser(try XCTUnwrap(URL(string: "http://survey.example/gis/image/id"))))
+        let debug = try SurveyEndpoint("http://127.0.0.1:8765/gis/app/", allowLoopbackHTTP: true)
+        XCTAssertTrue(debug.canOpenInBrowser(try XCTUnwrap(URL(string: "http://127.0.0.1:8765/gis/image/id"))))
+        XCTAssertFalse(debug.canOpenInBrowser(try XCTUnwrap(URL(string: "http://127.0.0.1:8000/gis/image/id"))))
+        XCTAssertFalse(debug.canOpenInBrowser(try XCTUnwrap(URL(string: "http://evil.example/gis/image/id"))))
+        XCTAssertFalse(debug.canOpenInBrowser(try XCTUnwrap(URL(string: "https://user:secret@images.example/road.jpg"))))
+        XCTAssertFalse(debug.canOpenInBrowser(try XCTUnwrap(URL(string: "file:///private/photo.jpg"))))
+    }
+
+    func testSurveyEndpointThousandDistinctRouteAndOriginCases() throws {
+        // Varied routes, percent-encoding, query values and hostile sibling hosts.
+        // These are contract/property cases, not a claim of 1,000 device UI runs.
+        for index in 0..<1000 {
+            let endpoint = try SurveyEndpoint("https://survey\(index).example/gis/app/?session=drive%20\(index)")
+            XCTAssertTrue(endpoint.contains(endpoint.initialVideoURL))
+            XCTAssertNotNil(endpoint.resourceURL("/gis/video/segments.csv?session=drive%20\(index)&offset=\(index)"))
+            XCTAssertNil(endpoint.resourceURL("https://survey\(index).example.evil.test/export.csv"))
+            XCTAssertNil(endpoint.resourceURL("https://survey\(index).example:444/export.csv"))
+            XCTAssertNil(endpoint.resourceURL("https://user@survey\(index).example/export.csv"))
+        }
+    }
+
     private func decode(_ json: String) throws -> AssessmentDataset {
         try SnapshotDecoder.decode(Data(json.utf8))
     }

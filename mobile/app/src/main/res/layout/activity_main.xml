@@ -392,6 +392,25 @@
             app:layout_constraintBottom_toTopOf="@id/shutterButton"
             app:layout_constraintVertical_chainStyle="packed" />
 
+        <TextView
+            android:id="@+id/surveyButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginEnd="24dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:gravity="center"
+            android:text="@string/survey_map"
+            android:textColor="@color/bar_text"
+            android:textSize="15sp"
+            android:fontFamily="@font/sf_display_medium"
+            android:background="@drawable/settings_option_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="@string/open_survey_map"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
         <!-- Thumbnail button -->
         <ImageView
             android:id="@+id/thumbnailButton"

@@ -6,7 +6,7 @@
 
 *Citizens snap photos of damaged roads — AI classifies each one — civic authorities see hotspots in real time.*
 
-**[Open the dashboard](https://gisgeoai.netlify.app/)**
+**[Existing hosted dashboard](https://gisgeoai.netlify.app/)** · Verify the hosted revision and data connection after each deployment.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-FACC15.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Android%20%7C%20iOS-22C55E?style=flat-square)](#)
@@ -29,9 +29,9 @@ This repo holds the **three client-facing pieces** of that system:
 
 | | What it does |
 |---|---|
-| 🗺️ **WebGIS** *(this repo's root)* | Civic-authority hotspot map. Renders classified assessments from Supabase on a Leaflet map with smart clustering, severity & day/night filtering, and JARVIS-style detail cards. |
-| 📱 **Mobile** *(`mobile/`)* | Native Android (Kotlin) capture client. CameraX preview, pinch-zoom 1:1 crop, flash toggle, low-light hint, 10-second live location refresh. Uploads to Cloudinary + writes to Supabase. |
-| 🛣️ **iOS** *([`ios/`](ios/README.md))* | Native SwiftUI/MapKit dashboard, horizontal assessment cards, road-focused icons, camera reports with capture time/GPS metadata, and protected local drafts. |
+| 🗺️ **WebGIS** *(this repo's root)* | Civic-authority map using either the read-only GIS API or an explicitly configured direct citizen source, with shared filters, clusters, evidence, CSV and view links. Drive tracks and replay require the GIS API. |
+| 📱 **Mobile** *(`mobile/`)* | Native Android capture client plus the bundled survey dashboard. Citizen observations connect through the existing public database configuration; an optional GIS server adds drive surveys. Native share, CSV save and camera/crop/upload remain available. |
+| 🛣️ **iOS** *([`ios/`](ios/README.md))* | Native SwiftUI/MapKit dashboard and reporting plus a retained Video tab for the shared survey website, native share and CSV export. |
 
 The AI pipeline, FastAPI server, expert-review UI, and Supabase schema live in the team's GPU-server repository — they're not in this repo.
 
@@ -49,7 +49,10 @@ flowchart LR
     Worker -->|results + confidence| Asses
     Asses -->|low confidence| Expert[🧑‍🔬 Expert UI]
     Expert -->|corrections| Worker
-    Asses -->|public read| WebGIS[🗺️ GeoAI WebGIS]
+    Asses --> GIS[Read-only GIS API]
+    GIS --> WebGIS[🗺️ GeoAI WebGIS]
+    Photos -.->|explicit direct citizen mode| WebGIS
+    Asses -.->|explicit direct citizen mode| WebGIS
     WebGIS --> BBMP([🏛️ BBMP / Civic])
 
     classDef inRepo fill:#1A1A1C,stroke:#22C55E,stroke-width:2px,color:#FFFFFF;
@@ -62,68 +65,76 @@ flowchart LR
 
 ## 🗺️ Web Dashboard
 
-Vanilla HTML/CSS/JS — **no build step**. Drop the repo onto Netlify or push to GitHub Pages and you're live.
+Vanilla HTML/CSS/JS with no compilation step. Static hosting uses a small staging command to select the public files and data source. The original glass navigation and map layout remain; About opens from the GEOAI logo. The screenshot above is the original design reference.
 
-The [hosted dashboard](https://gisgeoai.netlify.app/) can be opened without a local server. It includes free street maps and satellite imagery; no map API key is required.
+### Features
 
-### What's in it
+- Six map styles prepare their current viewport behind the opening screen. A switch reuses a loaded renderer; failed providers have bounded fallback and leave a working map visible.
+- Video starts as a camera icon, expands when selected, and adds only drive paths, actual distress and recorded kilometres. Its toggle never moves the map or opens another panel.
+- Map mode shows walking/citizen observations. Video/drive mode hides those markers and photos, showing drive routes and their distress instead. Tapping Map restores citizen observations with their saved filters.
+- Shared Filters: metadata-driven labels and severity, review state, confidence, inclusive IST dates, explicit day/night hours, citizen visibility and drive selection. Top Locations is available in Map mode.
+- Filters use rounded, collapsible glass cards, larger selection pills and a persistent Clear filters action. Text action buttons use a consistent 16 px size with at least 44 px touch targets across navigation, Settings, drive inspection and replay. Both light and dark themes adapt to phone widths.
+- The custom menu below total distance lists every recorded drive. Selecting a drive opens a right-side route and distress panel; click an observation to open its photo and details. All route lines and the full distance total remain visible when inspecting or replaying one drive; select All drives to return to the overview.
+- **Replay drive** opens inside the persistent drive card and zooms to the car, with Play/Pause, distance seeking, speed controls and optional Follow. All stored frames are reachable through Previous/Next and the thumbnail gallery. Opening a photo keeps the controls available; large screens show image and details side by side, while phones stack them.
+- Citizen and video observations use zoom-aware 40 px clusters. Numbered groups separate as you zoom in, remain stable when panning and preserve every observation. Coincident or maximum-zoom groups expose all member photos. Night halos and result counts remain intact.
+- Click a result for an evidence preview, final labels, corrections, confidence, review state, IST time and position uncertainty. Full-resolution images require an explicit link.
+- Optional drive comparisons show recorded kilometres, distressed metres and percentage, with sorting and explicit map focus.
+- Export exactly the filtered current map area to CSV; copy a view link from Settings to restore camera, style, layers and filters.
+- An on-demand metadata legend lives inside About; Settings contains map styles and Copy view link, with no separate Map legend button. Selected-drive evidence stays inside its drive card; citizen and All drives evidence retain the anchored previews and grouped View more list.
 
-- 🎨 **6 basemap styles** — light, dark, voyager, satellite, minimal, toner. UI chrome auto-flips to a dark theme on dark maps.
-- 📍 **14m geographic clustering** of overlapping markers, with multi-card cluster expansion (up to 3 cards + view-more)
-- 🎯 **JARVIS-style anchored detail cards** — pinch-aware connectors, radar pulse on click, 2s spinner→reveal animation
-- 🌅 **Civil-twilight day/night detection** per-marker — uses real sun-position math, not a hardcoded clock. Dashed border on night captures.
-- 🔍 **Cascading filters** — top locations by frequency, severity (Less / Moderate / Red Alert), time of day. Active filters drop pills next to the brand.
-- 💾 **Stale-while-revalidate `localStorage` cache** with 10-min TTL — saves Supabase reads, page loads from cache instantly
+By default, citizen observations come from `/gis/citizen/assessments.geojson`. An explicit `dataSource: 'supabase'` configuration instead reads the original `photos` and `assessments` tables directly through the current map UI. Neither source silently substitutes the legacy snapshot or switches sources after an error. The supplied GIS sample has 131 default citizen observations, 344 including pending review, 164 distressed video segments and 4.06 km of recorded drives; those are frozen sample counts, not current live totals.
 
-### What it looks like
+### Configuration and local preview
 
-<table>
-  <tr>
-    <td width="50%"><a href="docs/screenshots/02-filters-top-locations.png"><img alt="Filters — Top Locations" src="docs/screenshots/02-filters-top-locations.png"/></a><br/><sub><b>Filters → Top Locations.</b> Cascading panels show the highest-frequency capture sites with counts.</sub></td>
-    <td width="50%"><a href="docs/screenshots/03-filters-severity.png"><img alt="Filters — Severity" src="docs/screenshots/03-filters-severity.png"/></a><br/><sub><b>Filters → Severity.</b> Less / Moderate / Red Alert / Search-all options.</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><a href="docs/screenshots/04-severity-moderate-active.png"><img alt="Moderate severity active" src="docs/screenshots/04-severity-moderate-active.png"/></a><br/><sub><b>Severity filter locked in.</b> Pill next to the brand shows what's active; map shows only matching markers.</sub></td>
-    <td width="50%"><a href="docs/screenshots/05-detail-card.png"><img alt="Detail card on marker click" src="docs/screenshots/05-detail-card.png"/></a><br/><sub><b>JARVIS-style detail card.</b> Click any marker → flyTo → radar pulse → loading spinner → reveal.</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><a href="docs/screenshots/06-about-card.png"><img alt="About card" src="docs/screenshots/06-about-card.png"/></a><br/><sub><b>About page.</b> Project overview, AI pipeline, severity scale, tech stack, roadmap, authors.</sub></td>
-    <td width="50%"><a href="docs/screenshots/07-settings-map-styles.png"><img alt="Map style picker" src="docs/screenshots/07-settings-map-styles.png"/></a><br/><sub><b>6 basemap styles.</b> Light, Dark, Voyager, Satellite, Minimal, Toner — each remembered per-user.</sub></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><a href="docs/screenshots/08-dark-satellite.png"><img alt="Satellite dark chrome" src="docs/screenshots/08-dark-satellite.png" width="60%"/></a><br/><sub><b>Auto dark chrome on dark maps.</b> Pills, text, icons all flip to white when the basemap is dark.</sub></td>
-  </tr>
-</table>
-
-### Tech
-
-`Leaflet 1.9` · `MapLibre GL JS` · `OpenFreeMap` · `EOxCloudless` · `Supabase JS v2` · `Nominatim` · vanilla ES2020
-
-### Configuration
-
-Edit the top of [`app.js`](app.js):
+Recommended deployment: one HTTPS origin serving the API at `/gis/` and this folder at `/gis/app/`. In [`config.js`](config.js):
 
 ```js
-const SUPABASE_URL        = 'https://your-project.supabase.co';
-const SUPABASE_ANON_KEY   = 'YOUR_ANON_JWT';
+window.GIS_CONFIG = { apiBase: "", shareBaseUrl: "" };
 ```
 
-The anon key is safe in the browser as long as Supabase RLS is configured. **No map API key or map account is required.**
+Leave these empty for same-origin GIS hosting. Separate static hosting in GIS mode needs a reachable HTTPS `apiBase` and API CORS permission. Android with a saved GIS server uses that API and requires CORS permission for `https://appassets.androidplatform.net`. iOS Video loads the deployed `/gis/app/` website. No live drive API origin is invented or embedded.
 
-The five street styles use [OpenFreeMap](https://openfreemap.org/) vector tiles through MapLibre's Leaflet bridge. Minimal hides labels; Toner applies a monochrome treatment to the basemap only. Satellite combines street labels with the free [EOxCloudless Sentinel-2 2016 mosaic](https://cloudless.eox.at/documentation/faq), licensed CC BY 4.0. This imagery is about 10 m resolution, with native tiles through zoom 14; closer zooms enlarge the existing imagery rather than requesting unavailable tiles. It is older and less detailed than commercial aerial imagery.
+To use the original citizen database without a GIS server, explicitly configure the website with:
 
-If vector rendering is unavailable, street styles fall back to the standard OpenStreetMap raster map; satellite keeps its imagery without labels. Free public services offer no uptime guarantee. Keep the visible provider attribution and follow the [OSM tile policy](https://operations.osmfoundation.org/policies/tiles/) and EOX fair-use terms; do not add bulk downloading or prefetching.
+```js
+window.GIS_CONFIG = {
+  dataSource: 'supabase',
+  supabaseUrl: 'https://YOUR_PROJECT.supabase.co',
+  supabaseAnonKey: 'YOUR_PUBLIC_PUBLISHABLE_OR_ANON_KEY',
+  shareBaseUrl: 'https://YOUR_PUBLIC_MAP_URL/'
+};
+```
 
-Serve the dashboard over HTTP(S), including for local use (`python3 -m http.server 8000`, then open `http://localhost:8000`). Opening `index.html` directly as `file://` prevents snapshot requests and cannot supply the HTTP Referer required by the raster fallback. The site still needs no build step.
+Only a public publishable or anon key belongs in the client; secret/service-role keys are rejected. Both tables are paginated with exact count and duplicate checks before results appear. The latest assessment is joined to each photo, preserving expert corrections and recorded capture time. The usual review filter remains off by default; counts show matching observations out of the complete available total and explain review/pending/location exclusions. Records without coordinates remain counted but are not plotted. Filters, clusters, photo cards and citizen CSV exports use the shared UI. Video explains that drive routes are not connected and makes no drive API requests in this mode.
+
+Android with no saved GIS server automatically uses the existing public citizen database configuration from its capture setup, so a GIS server is not required to open citizen observations. A saved GIS server remains an explicit source choice; its errors do not fall back to Supabase. Shared links require the current website and matching source configuration to be deployed at the public map URL.
+
+Unzip the supplied `gis_sample.zip` next to this repository, then run:
+
+```sh
+python3 ../gis_sample/mock_server.py --app .
+# Open http://127.0.0.1:8765/gis/app/
+```
+
+The mock and sample data remain unchanged. Static hosting alone cannot provide the GIS API. Serve over HTTP(S), not `file://`.
+
+### Maps
+
+`Leaflet 1.9` · `MapLibre GL JS` · `OpenFreeMap` · `EOxCloudless` · `Nominatim` · vanilla ES2020.
+
+Five street styles share three retained vector renderers. Satellite uses the EOxCloudless Sentinel-2 2016 mosaic, with street labels; its approximately 10 m imagery is less detailed than commercial aerial imagery. The opening screen prepares only the current viewport, not an offline region. Movement and new zoom levels still need network tiles. Keep visible attribution and follow provider usage policies. Additional initial network and memory use enables faster switching.
+
+Read [`VIDEO.md`](VIDEO.md) for data semantics, endpoints, exports and deployment; [`PRODUCT_PLAN.md`](PRODUCT_PLAN.md) records the implemented plan and remaining release checks.
 
 ---
 
 ## 📱 Mobile App
 
-Native Android (Kotlin) capture client. See [`mobile/README.md`](mobile/README.md) for full docs.
+Native Android (Kotlin) capture client with a new Map entry for the shared survey dashboard. See [`mobile/README.md`](mobile/README.md) for full docs.
 
 ### What's in it
 
+- 🗺️ **Shared survey map** with automatic citizen data, an optional saved HTTPS GIS server for drives, shared filters/evidence, native view sharing and CSV saving
 - 📷 **CameraX preview** with single-tap shutter and persistent **6-second cooldown** between captures (survives app close)
 - 🔆 **Flash toggle** — off / on / auto cycle, with an animated status pill
 - 💡 **Low-light hint** — `ImageAnalysis` reads live preview luminance; drops a "Low light · try flash" pill when the scene gets dim and flash is off
@@ -144,9 +155,9 @@ cd mobile
 
 ## iOS app
 
-Open [`ios/GeoAI.xcodeproj`](ios/GeoAI.xcodeproj) in Xcode 26 or newer. Select the GeoAI scheme and your signing team for a physical device. The app targets iOS 17+ and opens with the bundled demo snapshot; live data and uploads require the public Supabase and Cloudinary configuration documented in [`ios/README.md`](ios/README.md).
+Open [`ios/GeoAI.xcodeproj`](ios/GeoAI.xcodeproj) in Xcode 26 or newer. Select the GeoAI scheme and your signing team for a physical device. The app targets iOS 17+ and uses the configured public Supabase service for its native map and Browse view; saved/demo fallback states remain separately labelled. Uploads use the public Supabase and Cloudinary configuration documented in [`ios/README.md`](ios/README.md).
 
-The latest camera startup/recovery changes compile but still need a physical-device preview and capture check. See [`ios/VERIFICATION.md`](ios/VERIFICATION.md) for tested behavior and limitations. The companion backend migration adds nullable photo capture timestamps without changing upload/queue timestamps.
+The Video tab uses a saved HTTPS dashboard URL and retains its web view across tab changes. Build 13 revalidates the website on explicit reload and checks for the current drive, captured-frame and clustering UI before accepting the dashboard. Deploy the matching root website files at that URL; rebuilding iOS alone does not update the hosted site. The 34 core regression methods, native bridge/compatibility checks, Swift syntax and complete Mac Catalyst typecheck passed. Build 13 also compiled with Xcode 27.2 and launched on an iPhone 18 Pro simulator running iOS 27.0; the native Browse screen was visually verified with **361 live observations** on October 30, 2026. This was a read-only simulator check, with no photo upload or physical-device camera run. See [`ios/SURVEY_VERIFICATION.md`](ios/SURVEY_VERIFICATION.md) and the separate historical capture checks in [`ios/VERIFICATION.md`](ios/VERIFICATION.md).
 
 ---
 
@@ -155,7 +166,15 @@ The latest camera startup/recovery changes compile but still need a physical-dev
 ```
 geoai/
 ├── index.html                      # WebGIS entry point
-├── app.js                          # All client logic (data, clusters, filters, cards)
+├── app.js                          # Original shell, navigation and map startup
+├── gis-core.js                     # Shared GIS contract, queries, CSV and links
+├── survey.js / survey.css          # Filters, citizen layer, evidence and tools
+├── video.js / video.css            # Drive tracks, distress and distance
+├── basemaps.js                     # Retained map preparation and fallback
+├── citizen-source.js               # Explicit direct citizen database adapter
+├── drive-player.js / .css          # Replay, complete stored frames and inline photos
+├── drive-inspector.js / .css       # Persistent drive, route and distress card
+├── config.js                       # API and public dashboard configuration
 ├── styles.css                      # Liquid-glass design system
 ├── fonts/rostex.outline.ttf        # Custom outline font for the GEO mark
 │
@@ -189,63 +208,24 @@ geoai/
 
 ## 🚀 Deploy
 
-The production WebGIS is hosted on **Netlify**. Its connected Git deployment
-publishes the static site from `main`, with no build step.
+The existing hosted revision is at [gisgeoai.netlify.app](https://gisgeoai.netlify.app/). The verified delivery includes the current website, Android 1.0.4 (build 5) debug and direct-install release APKs, and iOS build 13 source. Android release uses the existing debug certificate for direct installation; it is not a Play Store signing build. iOS build 13 has been built and launched in the simulator, including the native live Browse check described above. Source publication does not establish that the hosted website runs this revision. A signed physical-device IPA and production deployment verification remain separate release steps.
 
-**Live URL:** [gisgeoai.netlify.app](https://gisgeoai.netlify.app/)
+For the handoff server, copy the root website files and `fonts/` into the static folder exposed at `/gis/app/`, alongside its existing read-only `/gis/` API. Include every script and stylesheet referenced by `index.html`. Use HTTPS for phone connections. This repository does not include the live GPU/API server.
 
-### Optional GitHub Pages deployment
+Netlify and GitHub Pages publish the citizen dashboard through [`tools/build-static.cjs`](tools/build-static.cjs). The command stages exactly 17 public browser assets in ignored `dist/` and generates an explicit Supabase citizen configuration using the original public client settings from Android. Private/service keys are rejected before staging. Native source, repository files, snapshots and local settings are not published. The root `config.js` remains unchanged for GIS hosting and bundled Android assets.
 
-1. In this repo: **Settings → Pages → Source: `main` branch, `/ (root)` → Save**.
-2. After deployment, open [richikchaudhuri.github.io/geoai](https://richikchaudhuri.github.io/geoai/).
-3. Every subsequent `git push origin main` triggers an auto-redeploy.
-
-That's it. No build command, no publish directory config, no env vars.
-
-### Supabase keep-alive cron
-
-Supabase's free tier auto-pauses a project after ~7 days of inactivity.
-A graded capstone may be opened weeks after submission, so this repo
-ships with a GitHub Actions workflow ([`.github/workflows/supabase-keepalive.yml`](.github/workflows/supabase-keepalive.yml))
-that pings the Supabase REST endpoint once a day to keep it warm.
-
-The workflow runs automatically on the schedule. To trigger it manually:
-**Actions → keep-supabase-alive → Run workflow**.
-
-### Static snapshot fallback
-
-The repo ships a **committed snapshot** of the live data at
-[`data/snapshot.json`](data/snapshot.json) (plus a GeoJSON twin at
-[`data/snapshot.geojson`](data/snapshot.geojson) for QGIS / kepler.gl).
-If Supabase is unreachable — network blocked, project paused, RLS
-rejected — the WebGIS automatically falls back to that file and
-renders the snapshot dataset instead.
-
-Live table reads share a 15-second deadline; snapshot and search requests have
-10-second deadlines. Failed or malformed refreshes retain usable cached data.
-Markers use Leaflet's canvas renderer when available to avoid creating a DOM
-element per point, and list thumbnails load lazily.
-
-The snapshot is regenerated weekly by a GitHub Actions workflow
-([`.github/workflows/refresh-snapshot.yml`](.github/workflows/refresh-snapshot.yml))
-which runs the `geoai-snapshot` Rust tool against the live Supabase
-and commits the result back. The action runs Mondays at 04:15 UTC and
-can be triggered manually from the **Actions** tab.
-
-### Offline demo fallback (last resort)
-
-If campus Wi-Fi blocks GitHub Pages itself, clone the repo and serve
-it locally:
-
-```bash
-git clone https://github.com/richikchaudhuri/geoai
-cd geoai
-python -m http.server 8000
-# open http://localhost:8000
+```sh
+node tools/build-static.cjs
+# Publish dist/, not the repository root.
 ```
 
-Same site, same fallback chain: tries Supabase first, falls back to
-`data/snapshot.json` if Supabase is unreachable.
+[`netlify.toml`](netlify.toml) sets the build command and `dist` publish directory; its default share address is `https://gisgeoai.netlify.app`. The [Pages workflow](.github/workflows/pages.yml) builds the same citizen site on pushes to `main` or manual dispatch, then uploads only `dist/`. Set the repository's Pages publishing source to **GitHub Actions**. The workflow supplies the actual Pages base URL through `GEOAI_SHARE_BASE_URL`, preserving project subpaths in shared links. That environment variable can also set the HTTPS share address for another static host.
+
+Static hosting alone does not add a drive API. The citizen site reports Video as unavailable until a GIS deployment is connected; it does not fall back to sample drives. For a combined citizen/drive deployment, use the same-origin GIS instructions above or explicitly configure a reachable HTTPS API with the required CORS permission. Verify real data/image access after deployment. Android additionally needs the chosen service to permit its bundled asset origin; see [`mobile/README.md`](mobile/README.md).
+
+### Legacy capture and snapshot tools
+
+The existing Supabase keep-alive and snapshot workflows remain for the wider capture system and native snapshot consumers. The files in `data/` are legacy/demo datasets, not a fallback for the current GIS website. No production upload, database record, model inference or expert-review change was exercised by the survey tests.
 
 ---
 
@@ -269,8 +249,7 @@ cargo test --manifest-path tools/import/Cargo.toml
 cargo test --manifest-path tools/snapshot/Cargo.toml
 ```
 
-The tests use fixture data and a local HTTP server; they do not upload photos or
-contact production Supabase. On macOS, run `bash ios/Scripts/check-core.sh` and
+The web suite has 267 tests, including static-publication asset isolation, public-key validation and host-specific share links, as well as including direct citizen pagination beyond the first page, canonical assessment merging, review/capture semantics, source failures and current-UI integration. With the supplied `gis_sample` beside the repo, it also executes 1,440 independent filter comparisons against the mock Python implementation and 1,440 view-link round trips. That oracle test is explicitly skipped when the sample is absent. Run `node tools/verify-gis.cjs` with the local mock server running for 17 actual HTTP acceptance checks. Automated web tests do not upload photos or contact production Supabase. On macOS, run `bash ios/Scripts/check-core.sh` and
 `bash ios/Scripts/verify-capture.sh` for the Swift core and mocked capture checks.
 See `mobile/README.md` for Android build and device checks. GitHub Actions runs
 the dashboard, data-tool and Swift checks on pull requests.

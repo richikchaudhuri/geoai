@@ -27,8 +27,8 @@ object CloudUploader {
     private const val TAG = "CloudUploader"
     private const val CLOUDINARY_CLOUD = "dnxpt5gea"
     private const val CLOUDINARY_PRESET = "photos"
-    private const val SUPABASE_URL = "https://vtlkitpoffudiefuoijb.supabase.co"
-    private const val SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0bGtpdHBvZmZ1ZGllZnVvaWpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMDAzMjIsImV4cCI6MjA4OTc3NjMyMn0.wLrwTky4k8iAELOvFbNeo063Z1rjQKOzzq3QYFqR6CU"
+    private const val SUPABASE_URL = PublicBackendConfig.SUPABASE_URL
+    private const val SUPABASE_KEY = PublicBackendConfig.SUPABASE_PUBLIC_KEY
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)

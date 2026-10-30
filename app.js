@@ -8,13 +8,16 @@ const LoadingScreen = (() => {
   const totalStages = dots.length;
   const labels = [
     'Initialising map',
-    'Loading basemap tiles',
-    'Connecting to Supabase',
+    'Preparing map styles',
+    'Loading road data',
     'Fetching assessments',
     'Plotting locations',
   ];
   let currentStage = -1;
   let finished = false;
+  let dataReady = false;
+  let mapsReady = false;
+  let mapProgress = { settled: 0, total: 4 };
   const animationEvents = new AbortController();
   const minStartTime = performance.now();
 
@@ -40,12 +43,14 @@ const LoadingScreen = (() => {
     if (labels[index]) swapStatus(labels[index]);
   }
 
-  function finish() {
+  function complete(forced = false) {
     if (finished) return;
+    if (!forced && (!dataReady || !mapsReady)) return;
     finished = true;
+    clearTimeout(startupTimeout);
     dots.forEach((d) => { d.classList.remove('active'); d.classList.add('done'); });
     bar.style.width = '100%';
-    swapStatus('Ready');
+    swapStatus(forced ? 'Opening available map data' : 'Ready');
     const elapsed = performance.now() - minStartTime;
     const remaining = Math.max(0, 900 - elapsed);
     setTimeout(() => {
@@ -55,12 +60,35 @@ const LoadingScreen = (() => {
     }, remaining + 400);
   }
 
+  function finish() {
+    dataReady = true;
+    if (!mapsReady && !finished) {
+      swapStatus(`Preparing maps · ${mapProgress.settled}/${mapProgress.total}`);
+    }
+    complete();
+  }
+
+  function updateMapProgress(progress) {
+    mapProgress = progress;
+    if (dataReady && !mapsReady && !finished) {
+      swapStatus(`Preparing maps · ${progress.settled}/${progress.total}`);
+    }
+  }
+
+  function markMapsReady() {
+    mapsReady = true;
+    complete();
+  }
+
+  // Providers have bounded load/fallback attempts. This final guard also covers
+  // an unexpected browser/library failure; cached assessments remain usable.
+  const startupTimeout = setTimeout(() => complete(true), 35000);
+
   // ----- Interactive constellation field -----
   const canvas = document.getElementById('loadingCanvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) {
-    setTimeout(finish, 12000);
-    return { setStage, finish, canvasAvailable: false };
+    return { setStage, finish, mapsReady: markMapsReady, mapProgress: updateMapProgress, canvasAvailable: false };
   }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   let cw = 0, ch = 0;
@@ -199,13 +227,13 @@ const LoadingScreen = (() => {
   }
   requestAnimationFrame(draw);
 
-  setTimeout(() => finish(), 12000);
-
-  return { setStage, finish, canvasAvailable: true };
+  return { setStage, finish, mapsReady: markMapsReady, mapProgress: updateMapProgress, canvasAvailable: true };
 })();
 
-const SUPABASE_URL = 'https://vtlkitpoffudiefuoijb.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0bGtpdHBvZmZ1ZGllZnVvaWpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMDAzMjIsImV4cCI6MjA4OTc3NjMyMn0.wLrwTky4k8iAELOvFbNeo063Z1rjQKOzzq3QYFqR6CU';
+// Legacy snapshot utilities stay disabled when the shared GIS workspace is present.
+// That workspace uses either the GIS API or its explicit direct citizen adapter.
+const SUPABASE_URL = '';
+const SUPABASE_ANON_KEY = '';
 
 const BENGALURU = [12.9716, 77.5946];
 
@@ -259,14 +287,17 @@ const FALLBACK_MAP = {
 };
 
 LoadingScreen.setStage(0); // Initialising map
+const sharedStart = window.GeoAIGIS?.parseView(location.search);
+window.geoaiCanvasRenderer = LoadingScreen.canvasAvailable && typeof L.canvas === 'function' ? L.canvas({ padding: .3 }) : undefined;
 
 const map = L.map('map', {
   zoomControl: false,
   attributionControl: true,
   preferCanvas: LoadingScreen.canvasAvailable,
+  renderer: window.geoaiCanvasRenderer,
   minZoom: 1,
   maxZoom: 22,
-}).setView(BENGALURU, 12);
+}).setView(sharedStart?.hasView ? [sharedStart.lat, sharedStart.lng] : BENGALURU, sharedStart?.hasView ? sharedStart.zoom : 12);
 
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -287,165 +318,47 @@ try {
   const savedStyle = localStorage.getItem('mapStyle');
   if (Object.prototype.hasOwnProperty.call(MAP_STYLES, savedStyle)) currentStyle = savedStyle;
 } catch (_) { /* Storage can be disabled in private or embedded browsers. */ }
+if (sharedStart?.hasView) currentStyle = sharedStart.style;
+
+const basemapManager = new GeoAIBasemaps({
+  map, L, styles: MAP_STYLES, streetAttribution: STREET_ATTRIBUTION,
+  fallback: FALLBACK_MAP, notice: mapNotice,
+  onProgress: progress => LoadingScreen.mapProgress(progress),
+  onAvailability: states => {
+    document.querySelectorAll('.settings-option').forEach(button => {
+      const state = states[button.dataset.style];
+      button.dataset.loadState = state || 'loading';
+      button.disabled = state === 'failed';
+      if (!Object.prototype.hasOwnProperty.call(button.dataset, 'styleHint')) button.dataset.styleHint = button.title;
+      button.title = state === 'failed' ? 'This map could not load. Reload to try again.' : button.dataset.styleHint;
+      button.style.opacity = state === 'failed' ? '.45' : '';
+      if (state === 'loading') button.setAttribute('aria-busy', 'true');
+      else button.removeAttribute('aria-busy');
+    });
+  },
+  onActive: basemap => {
+    currentBasemap = basemap;
+    currentStyle = basemap.key;
+    document.body.classList.toggle('chrome-dark', !basemap.fallback && !!MAP_STYLES[basemap.key].dark);
+    document.querySelectorAll('.settings-option').forEach(button => {
+      button.classList.toggle('active', button.dataset.style === basemap.key);
+    });
+  },
+});
 
 function setMapStyle(styleKey) {
   if (!Object.prototype.hasOwnProperty.call(MAP_STYLES, styleKey)) return;
-  const style = MAP_STYLES[styleKey];
-  if (currentBasemap) {
-    clearTimeout(currentBasemap.timer);
-    if (currentBasemap.vector) map.removeLayer(currentBasemap.vector);
-    if (currentBasemap.raster) map.removeLayer(currentBasemap.raster);
-  }
-  const basemap = currentBasemap = { vector: null, raster: null, timer: null };
-  mapNotice.hidden = true;
-  currentStyle = styleKey;
   try { localStorage.setItem('mapStyle', styleKey); } catch (_) {}
-  document.body.classList.toggle('chrome-dark', !!style.dark);
-  document.querySelectorAll('.settings-option').forEach((el) => {
-    el.classList.toggle('active', el.dataset.style === styleKey);
-  });
-
-  function addRaster(source) {
-    const raster = basemap.raster = L.tileLayer(source.url, source.options);
-    let loadedTiles = 0, failedTiles = 0;
-    raster.on('loading', () => { loadedTiles = 0; failedTiles = 0; });
-    raster.on('tileload', () => loadedTiles++);
-    raster.on('tileerror', () => failedTiles++);
-    raster.on('load', () => {
-      if (currentBasemap !== basemap || basemap.raster !== raster) return;
-      if (failedTiles && !loadedTiles) {
-        if (source === FALLBACK_MAP) {
-          mapNotice.textContent = 'Map tiles could not load. Check your connection and try another map style.';
-          mapNotice.hidden = false;
-        } else {
-          setTimeout(() => {
-            if (basemap.raster === raster) fallback(true);
-          }, 0);
-        }
-      } else {
-        LoadingScreen.setStage(2);
-      }
-    });
-    raster.addTo(map);
-  }
-  function fallback(imageryFailed = false) {
-    if (currentBasemap !== basemap) return;
-    clearTimeout(basemap.timer);
-    if (basemap.vector) map.removeLayer(basemap.vector);
-    basemap.vector = null;
-    if (style.labelsOnly && !imageryFailed) {
-      mapNotice.textContent = 'Street labels could not load over the satellite imagery.';
-    } else if (/^https?:$/.test(location.protocol)) {
-      if (imageryFailed && basemap.raster) {
-        map.removeLayer(basemap.raster);
-        basemap.raster = null;
-      }
-      if (!basemap.raster) addRaster(FALLBACK_MAP);
-      document.body.classList.remove('chrome-dark');
-      mapNotice.textContent = 'This map style is unavailable. Showing the standard street map.';
-    } else {
-      // OSM requires an HTTP Referer, which file:// pages cannot provide.
-      mapNotice.textContent = 'Open this dashboard through a local web server to load the fallback map.';
-    }
-    mapNotice.hidden = false;
-  }
-
-  if (style.url) addRaster(style);
-  if (typeof L.maplibreGL !== 'function' || !window.maplibregl) {
-    fallback();
-    return;
-  }
-  try {
-    const vector = basemap.vector = L.maplibreGL({
-      style: `https://tiles.openfreemap.org/styles/${style.vector}`,
-      attributionControl: { customAttribution: STREET_ATTRIBUTION },
-    });
-    // The bridge can fail during onAdd when WebGL is disabled. Still let
-    // Leaflet unregister the layer and remove its partially created container.
-    const removeVector = vector.onRemove;
-    vector.onRemove = function (map) {
-      L.Util.cancelAnimFrame(this.transitionFrame);
-      if (this.getMaplibreMap()) removeVector.call(this, map);
-      else this.getContainer()?.remove();
-    };
-    // Bridge 0.1.4 leaves this animation frame alive after layer removal.
-    // Keep its transition logic, but cancel/guard work for disposed layers.
-    vector._transitionEnd = function () {
-      L.Util.cancelAnimFrame(this.transitionFrame);
-      this.transitionFrame = L.Util.requestAnimFrame(() => {
-        const gl = this.getMaplibreMap();
-        if (!this._map || !gl) return;
-        const zoom = this._map.getZoom();
-        const center = this._map.getCenter();
-        const offset = this._map.latLngToContainerPoint(this._map.getBounds().getNorthWest());
-        this._resizeContainer();
-        L.DomUtil.setTransform(gl._actualCanvas, offset, 1);
-        gl.once('moveend', () => {
-          if (this._map && this.getMaplibreMap() === gl) this._zoomEnd();
-        });
-        gl.jumpTo({ center, zoom: zoom - 1 });
-      });
-    };
-    vector.addTo(map);
-    const container = vector.getContainer();
-    container.classList.add('map-vector-basemap');
-    container.classList.toggle('map-monochrome', !!style.monochrome);
-    if (style.labelsOnly) container.style.opacity = '0';
-    const gl = vector.getMaplibreMap();
-    let mapLoaded = false;
-    let requiredSources = null;
-    const loadedSources = new Set();
-    function finishVectorLoad() {
-      if (currentBasemap !== basemap || basemap.vector !== vector) return;
-      if (mapLoaded && requiredSources && requiredSources.every(id => loadedSources.has(id))) {
-        clearTimeout(basemap.timer);
-        LoadingScreen.setStage(2);
-      }
-    }
-    gl.on('sourcedata', (event) => {
-      // `load` also fires when all tiles fail. A tile coordinate on sourcedata
-      // proves a tile decoded successfully, even if it contains no features.
-      if (event.coord && event.sourceId) loadedSources.add(event.sourceId);
-      finishVectorLoad();
-    });
-    gl.once('style.load', () => {
-      if (currentBasemap !== basemap || basemap.vector !== vector) return;
-      requiredSources = Object.entries(gl.getStyle().sources)
-        .filter(([, source]) => source.type === 'vector').map(([id]) => id);
-      for (const layer of gl.getStyle().layers) {
-        if ((style.labelsOnly && layer.type !== 'symbol') || (style.hideLabels && layer.type === 'symbol')) {
-          gl.setLayoutProperty(layer.id, 'visibility', 'none');
-        }
-        if (style.labelsOnly && layer.type === 'symbol' && layer.layout?.['text-field']) {
-          gl.setPaintProperty(layer.id, 'text-color', '#ffffff');
-          gl.setPaintProperty(layer.id, 'text-halo-color', '#202024');
-          gl.setPaintProperty(layer.id, 'text-halo-width', 1.5);
-        }
-      }
-      container.style.opacity = '1';
-      finishVectorLoad();
-    });
-    gl.once('load', () => {
-      mapLoaded = true;
-      finishVectorLoad();
-    });
-    // Individual tile/glyph errors can recover. Only abandon a map that
-    // never finishes loading, or loses its graphics context entirely.
-    basemap.timer = setTimeout(fallback, 20000);
-    gl.once('webglcontextlost', () => {
-      if (currentBasemap !== basemap || basemap.vector !== vector) return;
-      clearTimeout(basemap.timer);
-      setTimeout(() => {
-        if (basemap.vector === vector) fallback();
-      }, 0);
-    });
-  } catch (error) {
-    console.warn('Vector basemap unavailable:', error);
-    fallback();
-  }
+  return basemapManager.select(styleKey);
 }
 
-setMapStyle(currentStyle);
+// Data and the full map-style catalogue load together. Cached assessment data
+// alone must never dismiss the loading screen before the map is ready.
+const mapsStartup = basemapManager.start(currentStyle).catch(error => {
+  console.warn('Map preparation unavailable:', error);
+  mapNotice.textContent = 'Maps could not finish loading. Check your connection and reload.';
+  mapNotice.hidden = false;
+}).finally(() => LoadingScreen.mapsReady());
 
 const statusEl = document.getElementById('status');
 const searchInput = document.getElementById('searchInput');
@@ -522,6 +435,8 @@ function renderResults(items) {
   items.forEach((item) => {
     const row = document.createElement('div');
     row.className = 'result';
+    row.setAttribute('role', 'option');
+    row.tabIndex = -1;
     row.innerHTML = `
       <div class="result-title"></div>
       <div class="result-meta"></div>
@@ -530,6 +445,7 @@ function renderResults(items) {
     row.querySelector('.result-title').textContent = parts[0];
     row.querySelector('.result-meta').textContent = parts.slice(1).join(', ');
     row.addEventListener('click', () => selectResult(item));
+    row.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); selectResult(item); } });
     searchResults.appendChild(row);
   });
   searchResults.classList.add('open');
@@ -627,6 +543,20 @@ searchInput.addEventListener('focus', () => {
   }
 });
 
+searchInput.setAttribute('aria-controls', 'searchResults');
+searchResults.setAttribute('role', 'listbox');
+searchWrap.addEventListener('keydown', e => {
+  if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(e.key) || !searchResults.classList.contains('open')) return;
+  const options = [...searchResults.querySelectorAll('.result')];
+  if (!options.length) return;
+  const current = options.indexOf(document.activeElement);
+  if (e.key === 'Enter') { if (current < 0) { e.preventDefault(); options[0].click(); } return; }
+  e.preventDefault();
+  const next = (current + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+  options.forEach((node, index) => node.setAttribute('aria-selected', String(index === next)));
+  options[next].focus();
+});
+
 searchInput.addEventListener('input', (e) => {
   const q = e.target.value.trim();
   searchWrap.classList.toggle('has-value', q.length > 0);
@@ -640,7 +570,7 @@ document.addEventListener('keydown', (e) => {
     collapseSearch({ clear: true });
     settingsWrap.classList.remove('open');
   } else if ((e.key === '/' || (e.key === 'k' && (e.metaKey || e.ctrlKey))) &&
-             !searchWrap.classList.contains('active')) {
+             !searchWrap.classList.contains('active') && !e.target.closest('input, textarea, select, [contenteditable]')) {
     e.preventDefault();
     searchWrap.classList.remove('hint');
     searchWrap.classList.add('active');
@@ -680,7 +610,7 @@ document.addEventListener('click', (e) => {
 
 /* ---------- Supabase: assessments layer ---------- */
 
-const sb = (window.supabase && SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== 'PASTE_SUPABASE_ANON_KEY_HERE')
+const sb = (!window.GeoAIGIS && window.supabase)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
@@ -753,16 +683,25 @@ function colorForTypes(types) {
 }
 
 function effectiveTypes(row) {
+  if (row.__gis) {
+    const labels = row.__gis.feature?.properties?.final_labels;
+    return Array.isArray(labels) ? labels.filter(type => typeof type === 'string' && type.length > 0) : [];
+  }
   const types = row.expert_reviewed && Array.isArray(row.expert_corrected_types)
     ? row.expert_corrected_types : row.distress_types;
   return Array.isArray(types) ? types.filter(type => typeof type === 'string' && type.length > 0) : [];
 }
 
 function effectiveSeverity(row) {
+  if (row.__gis) return row.__gis.feature?.properties?.final_severity || 'Unknown';
   return (row.expert_reviewed && row.expert_corrected_severity) || row.severity || 'Unknown';
 }
 
 function effectiveConfidence(row) {
+  if (row.__gis) {
+    const value = row.__gis.feature?.properties?.confidence;
+    return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
+  }
   if (typeof row.stage2_confidence === 'number' && Number.isFinite(row.stage2_confidence)) {
     return row.stage2_confidence;
   }
@@ -817,6 +756,7 @@ async function fetchRows(table, columns, signal, limit = 10000) {
 }
 
 async function loadAssessments() {
+  if (window.GeoAIGIS) { LoadingScreen.setStage(3); return; }
   // 1) Try cache first — this is what saves your bills
   const cached = Cache.read();
   let renderedFromCache = false;
@@ -1365,6 +1305,15 @@ function buildCardElement() {
 }
 
 function attachExpandHandler(cardEl, row) {
+  if (row.__gis) {
+    cardEl.tabIndex = 0;
+    cardEl.setAttribute('role', 'button');
+    cardEl.setAttribute('aria-label', 'Expand observation preview');
+    cardEl.addEventListener('keydown', (e) => {
+      if (e.target !== cardEl || !['Enter', ' ', 'Spacebar'].includes(e.key) || cardEl.classList.contains('loading')) return;
+      e.preventDefault(); e.stopPropagation(); showExpandedCard(row);
+    });
+  }
   cardEl.addEventListener('click', (e) => {
     if (e.target.closest('.detail-close')) return;
     if (cardEl.classList.contains('loading')) return;
@@ -1379,7 +1328,105 @@ function escapeHTML(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function cardColour(row, type) {
+  if (!row.__gis) return DISTRESS_COLORS[type] || UNKNOWN_COLOR;
+  const colours = row.__gis.labelColors;
+  const colour = typeof colours?.get === 'function' ? colours.get(type) : colours?.[type];
+  return /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(colour || '') ? colour : UNKNOWN_COLOR;
+}
+
+function cardImageURL(value) {
+  if (typeof value !== 'string' || !value.trim()) return '';
+  try {
+    const url = new URL(value, document.baseURI);
+    return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password ? url.href : '';
+  } catch (_) { return ''; }
+}
+
+function cardPreviewURL(row, expanded = false) {
+  return row.__gis ? cardImageURL(expanded ? row.__gis.previewURL : row.__gis.thumbnailURL || row.__gis.previewURL) : row.image_url || '';
+}
+
+function markGISCard(card, row) {
+  if (!row.__gis) return;
+  const p = row.__gis.feature?.properties || {};
+  card.classList.add('gis-card');
+  card.dataset.layer = p.layer === 'video' || p.segment_id ? 'video' : 'citizen';
+  card.dataset.observationId = String(p.segment_id || p.id || row.__gis.feature?.id || row.id || '');
+  if (p.segment_id) card.dataset.segmentId = String(p.segment_id);
+}
+
+function cardMotionReduced(row) {
+  return Boolean(row?.__gis && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+}
+
+function bindGISCardImage(card, row, expanded = false) {
+  if (!row.__gis) return;
+  const wrap = card.querySelector(expanded ? '.expanded-photo-wrap' : '.detail-photo-wrap');
+  const image = wrap?.querySelector('img');
+  if (!wrap || !image) return;
+  const src = cardPreviewURL(row, expanded);
+  const placeholder = document.createElement('p');
+  placeholder.className = 'card-image-placeholder';
+  placeholder.textContent = src ? 'Loading preview…' : row.__gis.feature?.properties?.status === 'not_covered' ? 'No usable frame · not covered' : 'No preview available';
+  wrap.append(placeholder);
+  image.alt = 'Road survey evidence'; image.decoding = 'async'; image.referrerPolicy = 'no-referrer';
+  image.onload = () => { placeholder.hidden = true; };
+  image.onerror = () => { image.hidden = true; image.removeAttribute('src'); placeholder.hidden = false; placeholder.textContent = 'Preview unavailable'; };
+  if (src) {
+    image.src = src;
+    if (image.complete && image.naturalWidth > 0) placeholder.hidden = true;
+  }
+  else { image.hidden = true; image.removeAttribute('src'); }
+}
+
+function gisCardRows(row) {
+  const gis = row.__gis;
+  if (!gis) return [];
+  const rows = [
+    ['Captured', gis.capturedText || 'Time unavailable'],
+    ['Coordinates', fmtCoords(row)],
+    ['Review', gis.reviewText || 'Review state unavailable'],
+  ];
+  for (const entry of Array.isArray(gis.extraRows) ? gis.extraRows : []) {
+    if (Array.isArray(entry) && entry.length >= 2 && entry[1] != null && entry[1] !== '') rows.push([entry[0], entry[1]]);
+  }
+  return rows;
+}
+
+function gisPreviewRows(row) {
+  const p = row.__gis.feature?.properties || {};
+  const captured = new Date(p.local_time || p.utc || p.created_at || row.created_at);
+  const shortTime = Number.isFinite(captured.valueOf()) ? new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(captured) : 'Unavailable';
+  const shortReview = p.expert_reviewed ? 'Expert-reviewed' : p.needs_expert_review ? 'Needs review'
+    : p.answered === false ? 'Unclassified' : 'Model result';
+  return [['Captured', shortTime], ['Review', shortReview]];
+}
+
+function cardTopInset(card) {
+  if (!card.classList.contains('gis-card')) return CARD_EDGE_PADDING;
+  let inset = CARD_EDGE_PADDING;
+  document.querySelectorAll('.topbar, .toolbar').forEach(control => {
+    const bounds = control.getBoundingClientRect();
+    if (bounds.height > 0) inset = Math.max(inset, bounds.bottom + 12);
+  });
+  return inset;
+}
+
+function constrainGISCard(card) {
+  const inset = cardTopInset(card);
+  if (card.classList.contains('gis-card')) {
+    const available = Math.max(80, window.innerHeight - inset - CARD_EDGE_PADDING);
+    const limit = card.classList.contains('clickable') ? 320 : card.classList.contains('list-card') ? window.innerHeight * .6 : available;
+    card.style.maxHeight = `${Math.min(limit, available)}px`;
+  }
+  return inset;
+}
+
 function buildExpandedHTML(row) {
+  if (row.__gis) return buildGISExpandedHTML(row);
   const types = effectiveTypes(row);
   const severity = effectiveSeverity(row);
   const conf = effectiveConfidence(row);
@@ -1469,8 +1516,39 @@ function buildExpandedHTML(row) {
   return html;
 }
 
+function buildGISExpandedHTML(row) {
+  const gis = row.__gis, p = gis.feature?.properties || {};
+  const types = effectiveTypes(row), severity = effectiveSeverity(row), confidence = effectiveConfidence(row);
+  const original = Array.isArray(gis.originalLabels) ? gis.originalLabels.filter(label => typeof label === 'string') : [];
+  const corrected = p.expert_reviewed && original.length && JSON.stringify(original) !== JSON.stringify(types);
+  const preview = cardPreviewURL(row, true), full = cardImageURL(gis.fullURL);
+  const chips = types.map(type => `<span class="detail-tag" style="background:${cardColour(row, type)}">${escapeHTML(type)}</span>`).join('');
+  const metadata = gisCardRows(row);
+  const threshold = typeof gis.confidenceThreshold === 'number' && Number.isFinite(gis.confidenceThreshold)
+    ? Math.max(0, Math.min(1, gis.confidenceThreshold)) : null;
+  if (threshold != null) metadata.push(['Review threshold', `${Math.round(threshold * 100)}% · review flags are authoritative`]);
+  const confidenceMeter = confidence == null ? '' : `<div class="card-confidence-meter" role="meter" aria-label="Model confidence${threshold == null ? '' : `; review threshold ${Math.round(threshold * 100)}%`}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(confidence * 100)}"><span class="card-confidence-value" style="width:${confidence * 100}%"></span>${threshold == null ? '' : `<span class="card-confidence-threshold" style="left:${threshold * 100}%"></span>`}</div>`;
+  return `
+    <button class="detail-close" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div class="expanded-photo-wrap"><img class="expanded-photo" ${preview ? `src="${escapeHTML(preview)}"` : ''} alt="Road survey evidence" /></div>
+    <div class="expanded-body">
+      <div class="expanded-tags"><span class="severity-badge" data-severity="${escapeHTML(severity)}">${escapeHTML(severity)}</span><span class="detail-confidence">${confidence == null ? 'Confidence unavailable' : `${Math.round(confidence * 100)}% confidence`}</span></div>
+      ${confidenceMeter}
+      <div class="detail-tags">${chips}</div>
+      <h2 class="expanded-title">${escapeHTML(row.address || p.road_name || p.final_primary_label || types.join(' · ') || 'Observation')}</h2>
+      <p class="expanded-description">${escapeHTML(row.description || p.description || 'No description available.')}</p>
+      ${corrected ? `<p class="expanded-description">Original model labels: <s>${escapeHTML(original.join(' · '))}</s></p>` : ''}
+      ${p.expert_reviewed && p.severity && p.severity !== severity ? `<p class="expanded-description">Original model severity: <s>${escapeHTML(p.severity)}</s></p>` : ''}
+      <div class="expanded-section"><div class="expanded-section-title">Observation details</div><dl class="expanded-meta">${metadata.map(([name, value]) => `<dt>${escapeHTML(name)}</dt><dd>${escapeHTML(value)}</dd>`).join('')}</dl></div>
+      ${full ? `<a class="card-full-image" href="${escapeHTML(full)}" target="_blank" rel="noopener noreferrer">Open full resolution</a>` : ''}
+    </div>`;
+}
+
 function showExpandedCard(row) {
   const generation = ++cardGeneration;
+  if (row.__gis && Number.isFinite(row.latitude) && Number.isFinite(row.longitude)) selectedLatLng = [row.latitude, row.longitude];
   // Fade out existing cards
   cardConnectors.classList.remove('active');
   for (const { el } of activeCards) {
@@ -1487,6 +1565,7 @@ function showExpandedCard(row) {
 
     const card = document.createElement('aside');
     card.className = 'detail-panel expanded loading';
+    markGISCard(card, row);
     card.setAttribute('aria-hidden', 'false');
     card.innerHTML = `
       <button class="detail-close" aria-label="Close">
@@ -1506,6 +1585,9 @@ function showExpandedCard(row) {
 
     activeCards.push({ el: card, row, kind: 'expanded' });
     positionExpandedCard(card);
+    if (row.__gis) document.dispatchEvent(new CustomEvent('geoai:cardsopened', {
+      detail: { rows: [row], row, anchor: selectedLatLng },
+    }));
     void cardStack.offsetWidth;
 
     requestAnimationFrame(() => {
@@ -1516,17 +1598,19 @@ function showExpandedCard(row) {
         if (generation !== cardGeneration) return;
         card.innerHTML = buildExpandedHTML(row);
         card.querySelector('.detail-close').addEventListener('click', hideCards);
+        bindGISCardImage(card, row, true);
         card.classList.remove('loading');
         positionExpandedCard(card);
         // After layout settles, position again
         setTimeout(() => positionExpandedCard(card), 50);
-      }, 2000);
+      }, cardMotionReduced(row) ? 0 : 2000);
     });
-  }, 400);
+  }, cardMotionReduced(row) ? 0 : 400);
 }
 
 function positionExpandedCard(card) {
   if (!selectedLatLng) return;
+  const topInset = constrainGISCard(card);
   const point = map.latLngToContainerPoint(selectedLatLng);
   const cardW = card.offsetWidth;
   const cardH = card.offsetHeight;
@@ -1548,7 +1632,7 @@ function positionExpandedCard(card) {
   card.classList.toggle('flip-left', flipLeft);
 
   let top = point.y - cardH / 2;
-  top = Math.max(CARD_EDGE_PADDING, Math.min(top, vh - cardH - CARD_EDGE_PADDING));
+  top = Math.max(topInset, Math.min(top, vh - cardH - CARD_EDGE_PADDING));
   left = Math.max(CARD_EDGE_PADDING, left);
 
   card.style.left = `${left}px`;
@@ -1579,24 +1663,28 @@ function triggerRadarPulse(point) {
 function populateCard(card, row) {
   const types = effectiveTypes(row);
   const severity = effectiveSeverity(row);
+  markGISCard(card, row);
 
   const photo = card.querySelector('.detail-photo');
-  photo.src = row.image_url || '';
+  if (!row.__gis) photo.src = row.image_url || '';
   photo.alt = (types[0] || 'Pavement assessment') + (row.address ? ` near ${row.address}` : '');
+  bindGISCardImage(card, row);
 
   const sevBadge = card.querySelector('.severity-badge');
   sevBadge.textContent = severity;
   sevBadge.dataset.severity = severity;
 
   const conf = effectiveConfidence(row);
-  card.querySelector('.detail-confidence').textContent = conf ? `${Math.round(conf * 100)}% confidence` : '';
+  card.querySelector('.detail-confidence').textContent = row.__gis
+    ? conf == null ? 'Confidence unavailable' : `${Math.round(conf * 100)}% confidence`
+    : conf ? `${Math.round(conf * 100)}% confidence` : '';
 
   const tagsEl = card.querySelector('.detail-tags');
   tagsEl.innerHTML = '';
   if (!types.length) {
     const chip = document.createElement('span');
     chip.className = 'detail-tag';
-    chip.textContent = 'Normal';
+    chip.textContent = row.__gis ? row.__gis.feature?.properties?.vlm_class === 'normal' ? 'Normal' : 'Unclassified' : 'Normal';
     chip.style.background = UNKNOWN_COLOR;
     tagsEl.appendChild(chip);
   } else {
@@ -1604,7 +1692,7 @@ function populateCard(card, row) {
       const chip = document.createElement('span');
       chip.className = 'detail-tag';
       chip.textContent = t;
-      chip.style.background = DISTRESS_COLORS[t] || UNKNOWN_COLOR;
+      chip.style.background = cardColour(row, t);
       tagsEl.appendChild(chip);
     }
   }
@@ -1618,14 +1706,18 @@ function populateCard(card, row) {
 
   const meta = card.querySelector('.detail-meta');
   meta.innerHTML = '';
-  const metaRows = [
+  const metaRows = row.__gis ? gisPreviewRows(row) : [
     ['Captured', formatDate(row.created_at || row.processed_at)],
     ['Coordinates', fmtCoords(row)],
   ];
-  if (row.expert_reviewed) metaRows.push(['Review', 'Verified by expert']);
+  if (!row.__gis && row.expert_reviewed) metaRows.push(['Review', 'Verified by expert']);
   for (const [k, v] of metaRows) {
     const dt = document.createElement('dt'); dt.textContent = k;
     const dd = document.createElement('dd'); dd.textContent = v;
+    if (row.__gis && k === 'Captured') {
+      dd.title = row.__gis.capturedText || 'Time unavailable';
+      dd.setAttribute('aria-label', dd.title);
+    }
     meta.appendChild(dt); meta.appendChild(dd);
   }
 }
@@ -1639,7 +1731,7 @@ function computeCircleAngles(n) {
   return angles;
 }
 
-function showCards(rows) {
+function showCards(rows, { focus = true, anchor } = {}) {
   hideCards();
   const generation = cardGeneration;
   if (!rows.length) return;
@@ -1657,15 +1749,23 @@ function showCards(rows) {
     if (mapNav) mapNav.classList.add('active');
   }
 
-  selectedLatLng = [rows[0].latitude, rows[0].longitude];
+  selectedLatLng = Array.isArray(anchor) && anchor.length === 2 && anchor.every(Number.isFinite) ? anchor : [rows[0].latitude, rows[0].longitude];
   currentClusterRows = rows;
+  const reduceMotion = cardMotionReduced(rows[0]);
 
   const sorted = [...rows].sort((a, b) =>
     (rowTypeRank(b) - rowTypeRank(a)) || (rowSeverityRank(b) - rowSeverityRank(a))
   );
+  if (rows[0].__gis) {
+    sorted.splice(sorted.indexOf(rows[0]), 1);
+    sorted.unshift(rows[0]); // Always preview the camera/dot the viewer selected.
+  }
 
-  const showViewMore = sorted.length > MAX_VISIBLE_CARDS;
-  const visibleCount = showViewMore ? MAX_VISIBLE_CARDS : sorted.length;
+  // Preserve the original desktop fan. A phone gets one preview plus the same
+  // View-more card, so every observation stays reachable without overlapping.
+  const visibleLimit = rows[0].__gis && window.innerWidth <= 820 ? 1 : MAX_VISIBLE_CARDS;
+  const showViewMore = sorted.length > visibleLimit;
+  const visibleCount = showViewMore ? visibleLimit : sorted.length;
   const totalSlots = visibleCount + (showViewMore ? 1 : 0);
   const angles = computeCircleAngles(totalSlots);
 
@@ -1683,16 +1783,20 @@ function showCards(rows) {
     activeCards.push({ el: moreBtn, row: null, kind: 'more' });
   }
 
-  map.flyTo(selectedLatLng, Math.max(map.getZoom(), 19), {
-    duration: 1.1,
+  if (focus) map.flyTo(selectedLatLng, Math.max(map.getZoom(), 19), {
+    duration: reduceMotion ? 0 : 1.1,
+    ...(reduceMotion ? { animate: false } : {}),
     easeLinearity: 0.25,
   });
 
   // Radar pulse from the marker pixel position
   const anchorPoint = map.latLngToContainerPoint(selectedLatLng);
-  triggerRadarPulse(anchorPoint);
+  if (!reduceMotion) triggerRadarPulse(anchorPoint);
 
   positionAllCards();
+  if (rows[0].__gis) document.dispatchEvent(new CustomEvent('geoai:cardsopened', {
+    detail: { rows, row: rows[0], anchor: selectedLatLng },
+  }));
   void cardStack.offsetWidth;
   requestAnimationFrame(() => {
     if (generation !== cardGeneration) return;
@@ -1700,14 +1804,14 @@ function showCards(rows) {
     activeCards.forEach(({ el, kind }, i) => {
       setTimeout(() => {
         if (generation === cardGeneration) el.classList.add('open');
-      }, i * 80);
+      }, reduceMotion ? 0 : i * 80);
       // After 2s, reveal full card content from loading pill
       if (kind === 'card') {
         setTimeout(() => {
           if (generation !== cardGeneration) return;
           el.classList.remove('loading');
           requestAnimationFrame(() => positionAllCards());
-        }, 2000 + i * 80);
+        }, reduceMotion ? 0 : 2000 + i * 80);
       }
     });
   });
@@ -1716,13 +1820,14 @@ function showCards(rows) {
 function buildViewMoreElement(extraCount, allRows) {
   const btn = document.createElement('button');
   btn.className = 'detail-panel view-more';
+  markGISCard(btn, allRows[0]);
   btn.setAttribute('aria-label', `View ${extraCount} more`);
   btn.innerHTML = `
     <span class="corner tl"></span><span class="corner tr"></span>
     <span class="corner bl"></span><span class="corner br"></span>
     <div class="view-more-body">
       <div class="view-more-stack">
-        ${allRows.slice(0, 3).map(r => `<span class="vm-dot" style="background:${colorForTypes(effectiveTypes(r))}"></span>`).join('')}
+        ${allRows.slice(0, 3).map(r => `<span class="vm-dot" style="background:${r.__gis ? cardColour(r, r.__gis.feature?.properties?.marker_label || effectiveTypes(r)[0]) : colorForTypes(effectiveTypes(r))}"></span>`).join('')}
       </div>
       <div class="view-more-label">+${extraCount} more</div>
       <div class="view-more-sub">View all ${allRows.length}</div>
@@ -1740,6 +1845,7 @@ function buildViewMoreElement(extraCount, allRows) {
 function buildListElement(rows) {
   const card = document.createElement('aside');
   card.className = 'detail-panel list-card';
+  markGISCard(card, rows[0]);
   card.setAttribute('aria-hidden', 'false');
   card.innerHTML = `
     <span class="corner tl"></span><span class="corner tr"></span>
@@ -1751,7 +1857,7 @@ function buildListElement(rows) {
       </svg>
     </button>
     <div class="list-header">
-      <div class="list-title">${rows.length} assessments at this location</div>
+      <div class="list-title">${rows.length} ${rows[0].__gis ? 'nearby observations' : 'assessments at this location'}</div>
       <div class="list-sub">Click any to inspect</div>
     </div>
     <div class="list-rows"></div>
@@ -1761,21 +1867,26 @@ function buildListElement(rows) {
     const types = effectiveTypes(row);
     const severity = effectiveSeverity(row);
     const conf = effectiveConfidence(row);
+    const preview = cardPreviewURL(row);
     const item = document.createElement('button');
     item.className = 'list-row';
     item.innerHTML = `
-      <img class="list-thumb" alt="" loading="lazy" decoding="async" src="${escapeHTML(row.image_url || '')}" />
+      ${row.__gis && !preview ? '<span class="list-thumb-placeholder">No preview</span>' : `<img class="list-thumb" alt="" loading="lazy" decoding="async" src="${escapeHTML(preview)}" />`}
       <div class="list-text">
         <div class="list-row-top">
           <span class="severity-badge" data-severity="${escapeHTML(severity)}">${escapeHTML(severity)}</span>
-          ${types.length ? types.map(t => `<span class="list-type" style="background:${DISTRESS_COLORS[t] || UNKNOWN_COLOR}">${escapeHTML(t.split(' (')[0])}</span>`).join('') : '<span class="list-type" style="background:'+UNKNOWN_COLOR+'">Normal</span>'}
+          ${types.length ? types.map(t => `<span class="list-type" style="background:${cardColour(row, t)}">${escapeHTML(t.split(' (')[0])}</span>`).join('') : '<span class="list-type" style="background:'+UNKNOWN_COLOR+'">'+(row.__gis && row.__gis.feature?.properties?.vlm_class !== 'normal' ? 'Unclassified' : 'Normal')+'</span>'}
         </div>
         <div class="list-row-bot">
           <span class="list-addr">${escapeHTML(row.address || 'No address')}</span>
-          ${conf ? `<span class="list-conf">${Math.round(conf * 100)}%</span>` : ''}
+          ${conf || row.__gis && conf != null ? `<span class="list-conf">${Math.round(conf * 100)}%</span>` : ''}
         </div>
       </div>
     `;
+    if (row.__gis) item.querySelector('img')?.addEventListener('error', event => {
+      const placeholder = document.createElement('span'); placeholder.className = 'list-thumb-placeholder'; placeholder.textContent = 'No preview';
+      event.currentTarget.replaceWith(placeholder);
+    });
     item.addEventListener('click', () => {
       showCards([row]);
     });
@@ -1813,7 +1924,7 @@ function showListView(rows) {
       cardConnectors.classList.add('active');
       list.classList.add('open');
     });
-  }, 400);
+  }, cardMotionReduced(rows[0]) ? 0 : 400);
 }
 
 function hideCards() {
@@ -1821,18 +1932,20 @@ function hideCards() {
   selectedLatLng = null;
   currentClusterRows = null;
   cardConnectors.classList.remove('active');
-  if (!activeCards.length) {
-    while (cardConnectors.firstChild) cardConnectors.removeChild(cardConnectors.firstChild);
-    return;
-  }
   const closing = activeCards;
   activeCards = [];
+  if (!closing.length) {
+    while (cardConnectors.firstChild) cardConnectors.removeChild(cardConnectors.firstChild);
+    document.dispatchEvent(new CustomEvent('geoai:cardsclosed'));
+    return;
+  }
   for (const { el } of closing) {
     el.classList.remove('open');
     // Stop watching this card's size — without this, removed cards keep
     // firing the observer callback and trigger phantom positionAllCards calls.
     try { cardResizeObserver.unobserve(el); } catch (_) {}
   }
+  document.dispatchEvent(new CustomEvent('geoai:cardsclosed'));
   setTimeout(() => {
     for (const { el } of closing) el.remove();
     if (generation !== cardGeneration) return;
@@ -1857,6 +1970,23 @@ function positionAllCards() {
 
   const n = activeCards.length;
   const isList = n === 1 && activeCards[0].kind === 'list';
+  activeCards.forEach(({ el }) => constrainGISCard(el));
+  if (vw <= 820 && n > 1 && activeCards.every(({ el }) => el.classList.contains('gis-card'))) {
+    const topInset = Math.max(...activeCards.map(({ el }) => cardTopInset(el)));
+    const moreHeight = activeCards.filter(({ kind }) => kind === 'more').reduce((total, { el }) => total + el.offsetHeight, 0);
+    for (const { el, kind } of activeCards) if (kind === 'card') {
+      el.style.maxHeight = `${Math.max(80, Math.min(320, vh - topInset - CARD_EDGE_PADDING - moreHeight - (n - 1) * 12))}px`;
+    }
+    const totalHeight = activeCards.reduce((total, { el }) => total + el.offsetHeight, 0) + (n - 1) * 12;
+    let top = Math.max(topInset, Math.min(point.y - totalHeight / 2, vh - totalHeight - CARD_EDGE_PADDING));
+    for (const { el } of activeCards) {
+      el.style.left = `${Math.max(CARD_EDGE_PADDING, (vw - el.offsetWidth) / 2)}px`;
+      el.style.top = `${top}px`;
+      top += el.offsetHeight + 12;
+    }
+    drawCardConnectors(point);
+    return;
+  }
   const distance = isList ? SINGLE_DISTANCE :
                    n === 1 ? SINGLE_DISTANCE :
                    n <= 3 ? FAN_DISTANCE :
@@ -1880,7 +2010,7 @@ function positionAllCards() {
     let top = cardCenterY - cardH / 2;
 
     left = Math.max(CARD_EDGE_PADDING, Math.min(left, vw - cardW - CARD_EDGE_PADDING));
-    top = Math.max(CARD_EDGE_PADDING, Math.min(top, vh - cardH - CARD_EDGE_PADDING));
+    top = Math.max(cardTopInset(el), Math.min(top, vh - cardH - CARD_EDGE_PADDING));
 
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
@@ -1965,23 +2095,30 @@ const cardResizeObserver = new ResizeObserver(() => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && activeCards.length) hideCards();
+  const gisOpen = document.body.classList.contains('gis-cards-open') || activeCards.some(({ el }) => el.classList.contains('gis-card'));
+  if (e.key === 'Escape' && (activeCards.length || gisOpen)) {
+    if (gisOpen) e.preventDefault();
+    hideCards();
+  }
 });
 
 /* ---------- Nav pill (icon → icon+label active state) ---------- */
 
 const aboutStack = document.getElementById('aboutStack');
+const aboutTrigger = document.querySelector('.topbar .brand');
 const filterStack = document.getElementById('filterStack');
 
 function openAboutStack() {
   aboutStack.classList.add('open');
   aboutStack.setAttribute('aria-hidden', 'false');
+  aboutTrigger.setAttribute('aria-expanded', 'true');
   document.body.classList.add('about-open');
 }
 
 function closeAboutStack() {
   aboutStack.classList.remove('open');
   aboutStack.setAttribute('aria-hidden', 'true');
+  aboutTrigger.setAttribute('aria-expanded', 'false');
   document.body.classList.remove('about-open');
 }
 const filterRoot = document.getElementById('filterRoot');
@@ -2237,6 +2374,17 @@ filterSeverity.addEventListener('click', (e) => {
   showSeverityLocations(btn.dataset.severity);
 });
 
+aboutTrigger.addEventListener('click', (e) => {
+  e.preventDefault();
+  const wasOpen = aboutStack.classList.contains('open');
+  closeFilterStack();
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    item.classList.toggle('active', item.dataset.page === 'map');
+  });
+  if (wasOpen) closeAboutStack();
+  else openAboutStack();
+});
+
 document.querySelectorAll('.nav-item').forEach((item) => {
   item.addEventListener('click', (e) => {
     e.preventDefault();
@@ -2246,9 +2394,6 @@ document.querySelectorAll('.nav-item').forEach((item) => {
     if (item.dataset.page === 'filters') {
       closeAboutStack();
       openFilterStack();
-    } else if (item.dataset.page === 'about') {
-      closeFilterStack();
-      openAboutStack();
     } else {
       closeFilterStack();
       closeAboutStack();

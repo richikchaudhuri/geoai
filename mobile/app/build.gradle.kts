@@ -16,14 +16,23 @@ android {
         // FusedLocation, and OSMDroid all support API 26+.
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 5
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        val surveyOrigin = providers.gradleProperty("geoaiSurveyOrigin").orElse("").get()
+        buildConfigField("String", "SURVEY_ORIGIN", "\"${surveyOrigin.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
     buildTypes {
+        debug {
+            // Local fixture only: final APKs leave this empty and use the
+            // same public Supabase project as capture. Release ignores it.
+            val citizenTestOrigin = providers.gradleProperty("geoaiCitizenTestOrigin").orElse("").get()
+            buildConfigField("String", "CITIZEN_TEST_ORIGIN", "\"${citizenTestOrigin.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        }
         release {
+            buildConfigField("String", "CITIZEN_TEST_ORIGIN", "\"\"")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -44,8 +53,20 @@ android {
     }
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/surveyAssets"))
 }
+
+// One implementation ships on the web and in Android. Copy at build time so
+// the app cannot silently lag behind changes to the survey data contract/UI.
+val syncSurveyAssets by tasks.registering(Sync::class) {
+    from(rootProject.projectDir.parentFile) {
+        include("*.html", "*.js", "*.css", "favicon.svg", "fonts/**")
+    }
+    into(layout.buildDirectory.dir("generated/surveyAssets/survey"))
+}
+tasks.named("preBuild").configure { dependsOn(syncSurveyAssets) }
 
 dependencies {
     implementation(libs.androidx.core.ktx)
@@ -63,6 +84,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.webkit:webkit:1.14.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

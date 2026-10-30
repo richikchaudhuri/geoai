@@ -1,0 +1,142 @@
+/* Custom drive picker and selected-drive companion card. */
+#videoDrivePicker { position: relative; min-width: 0; z-index: 2; }
+.video-distance .drive-replay-launcher { z-index: auto; }
+.drive-picker-trigger, .drive-picker-option {
+  font: inherit; color: inherit; cursor: pointer; text-align: left;
+}
+.drive-picker-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; min-height: 72px; padding: 13px 14px;
+  border: 1px solid var(--border); border-radius: 17px;
+  background: rgba(255,255,255,.68); box-shadow: inset 0 1px 0 rgba(255,255,255,.6);
+  transition: background .2s, border-color .2s;
+}
+.drive-picker-trigger:hover { background: rgba(255,255,255,.94); border-color: var(--border-strong); }
+.drive-picker-trigger[aria-expanded=true] { border-color: var(--ink); }
+.drive-picker-trigger:disabled { opacity: .55; cursor: default; }
+.drive-picker-value { display: grid; gap: 5px; min-width: 0; flex: 1; }
+.drive-picker-value strong { font-size: 16px; font-weight: 650; overflow-wrap: anywhere; }
+.drive-picker-caption { font-size: 13px; font-weight: 400; line-height: 1.35; opacity: .7; }
+.drive-picker-chevron { font-size: 23px; line-height: 1; opacity: .65; transform: translateY(-3px); transition: transform .2s; }
+.drive-picker-trigger[aria-expanded=true] .drive-picker-chevron { transform: rotate(180deg) translateY(0); }
+.drive-picker-options {
+  position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 10;
+  max-height: min(350px, 48dvh); overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px; border: 1px solid var(--glass-light-border); border-radius: 20px;
+  background: rgba(250,250,252,.98); color: var(--ink); box-shadow: 0 14px 38px rgba(0,0,0,.16);
+  animation: drive-picker-open .16s ease both;
+}
+.drive-picker-options[hidden] { display: none; }
+.drive-picker-option {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 44px; padding: 12px 10px; border: 0; border-radius: 13px; background: transparent;
+}
+.drive-picker-option + .drive-picker-option { margin-top: 3px; }
+.drive-picker-option:hover, .drive-picker-option:focus-visible { background: rgba(26,26,28,.065); outline: none; }
+.drive-picker-option[aria-selected=true] { background: rgba(26,26,28,.08); }
+.drive-picker-option-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; }
+.drive-picker-option-title strong { font-size: var(--control-font-size); font-weight: var(--control-font-weight); overflow-wrap: anywhere; }
+.drive-picker-distance { font-size: 13px; white-space: nowrap; opacity: .8; }
+.drive-picker-check { width: 16px; font-size: 15px; font-weight: 700; }
+.drive-picker-trigger:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+body.chrome-dark .drive-picker-trigger { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.12); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
+body.chrome-dark .drive-picker-trigger:hover, body.chrome-dark .drive-picker-trigger[aria-expanded=true] { background: rgba(255,255,255,.11); border-color: rgba(255,255,255,.4); }
+body.chrome-dark .drive-picker-options { background: rgba(35,35,39,.99); border-color: var(--glass-dark-border); }
+body.chrome-dark .drive-picker-option:hover, body.chrome-dark .drive-picker-option:focus-visible,
+body.chrome-dark .drive-picker-option[aria-selected=true] { background: rgba(255,255,255,.1); }
+
+.drive-inspector {
+  position: fixed; top: 140px; right: 36px; z-index: 1100;
+  width: min(350px, calc(100vw - 40px)); max-height: calc(100dvh - 225px);
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  padding: 21px; border-radius: 26px; border: 1px solid var(--glass-light-border);
+  background: var(--glass-light); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--glass-light-highlight), var(--shadow-float); color: var(--ink);
+  animation: drive-inspector-arrive .35s cubic-bezier(.22,1,.36,1) both;
+}
+.drive-inspector[hidden] { display: none; }
+.drive-inspector-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.drive-inspector-eyebrow { font-size: 10px; letter-spacing: .13em; font-weight: 700; opacity: .6; }
+.drive-inspector h2 { font-size: 23px; line-height: 1.2; font-weight: 650; margin: 6px 0 0; overflow-wrap: anywhere; }
+.drive-inspector-close { border: 0; background: rgba(127,127,127,.09); border-radius: 50%; flex: 0 0 44px; width: 44px; height: 44px; font: inherit; font-size: 23px; color: inherit; cursor: pointer; }
+.drive-inspector-subtitle { margin: 8px 0 14px; font-size: 12px; opacity: .75; line-height: 1.4; }
+.drive-inspector-route { padding: 2px 10px 10px; border-radius: 18px; background: rgba(127,127,127,.06); border: 1px solid var(--border); }
+.drive-inspector-route svg { width: 100%; height: 124px; display: block; }
+.drive-inspector-route-line { fill: none; stroke: #2563eb; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.drive-inspector-route-start { fill: #2563eb; stroke: white; stroke-width: 2; }
+.drive-inspector-route-end { fill: white; stroke: #2563eb; stroke-width: 2.5; }
+.drive-inspector-route-caption { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; opacity: .7; }
+.drive-inspector-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 15px 0; }
+.drive-inspector-stats > div { display: grid; gap: 5px; }
+.drive-inspector-stats strong { font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.drive-inspector-stats span { font-size: 11px; opacity: .65; }
+.drive-inspector-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.drive-inspector-actions button, .drive-inspector-retry, .drive-inspector-more { min-height: 44px; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font: inherit; font-size: var(--control-font-size); font-weight: var(--control-font-weight); line-height: 1.35; color: inherit; background: rgba(255,255,255,.7); cursor: pointer; }
+.drive-inspector-actions button { flex: 1 1 120px; min-width: 0; overflow-wrap: anywhere; }
+.drive-inspector-actions button:disabled { opacity: .45; cursor: default; }
+.drive-inspector-results { border-top: 1px solid var(--border); padding-top: 15px; }
+.drive-inspector-results-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.drive-inspector h3 { font-size: 15px; font-weight: 650; margin: 0; }
+.drive-inspector-count { border-radius: 999px; min-width: 27px; padding: 4px 7px; font-size: 11px; font-weight: 700; background: rgba(127,127,127,.1); text-align: center; }
+.drive-inspector-count:empty { display: none; }
+.drive-inspector-message { margin: 9px 0 12px; font-size: 12px; line-height: 1.5; opacity: .75; }
+.drive-inspector-labels { display: flex; flex-wrap: wrap; gap: 6px; }
+.drive-inspector-label { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; border-radius: 9px; background: rgba(127,127,127,.07); font-size: 11px; }
+.drive-inspector-label i { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.drive-inspector-label strong { margin-left: 3px; font-size: 11px; }
+.drive-inspector-note { margin: 10px 0; font-size: 10px; line-height: 1.4; opacity: .65; }
+.drive-inspector-observations { display: grid; gap: 7px; margin-top: 12px; }
+.drive-inspector-observation { display: grid; gap: 6px; width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 13px; font: inherit; color: inherit; background: rgba(255,255,255,.55); text-align: left; cursor: pointer; }
+.drive-inspector-observation:hover { background: rgba(255,255,255,.9); border-color: var(--border-strong); }
+.drive-inspector-observation-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.drive-inspector-observation-top strong { font-size: 16px; font-weight: 600; }
+.drive-inspector-severity { font-size: 12px; font-weight: 600; padding: 3px 6px; border-radius: 6px; background: rgba(127,127,127,.09); }
+.drive-inspector-observation-labels { font-size: 14px; line-height: 1.4; opacity: .75; }
+.drive-inspector-more { width: 100%; margin-top: 10px; }
+.drive-inspector button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.drive-inspector [hidden] { display: none; }
+body.chrome-dark .drive-inspector { background: var(--glass-dark); border-color: var(--glass-dark-border); box-shadow: var(--glass-dark-highlight), var(--shadow-float); }
+body.chrome-dark .drive-inspector-route { border-color: rgba(255,255,255,.08); background: rgba(255,255,255,.035); }
+body.chrome-dark .drive-inspector-route-line { stroke: #93c5fd; }
+body.chrome-dark .drive-inspector-route-start { fill: #93c5fd; stroke: #202024; }
+body.chrome-dark .drive-inspector-route-end { stroke: #93c5fd; fill: #202024; }
+body.chrome-dark .drive-inspector-actions button, body.chrome-dark .drive-inspector-retry,
+body.chrome-dark .drive-inspector-more, body.chrome-dark .drive-inspector-observation { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.1); }
+body.chrome-dark .drive-inspector-observation:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.25); }
+body.chrome-dark .drive-inspector-results { border-color: rgba(255,255,255,.1); }
+body.gis-cards-open .drive-inspector, body.about-open .drive-inspector,
+body:has(.filter-stack.open) .drive-inspector, body:has(.settings-wrap.open) .drive-inspector, body:has(.search-wrap.active) .drive-inspector { visibility: hidden; pointer-events: none; }
+@keyframes drive-picker-open { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes drive-inspector-arrive { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+@media(min-width:821px) and (max-width:1440px) { .drive-inspector { top: 110px; right: 24px; max-height: calc(100dvh - 195px); } }
+@media(min-width:821px) and (max-width:1100px) {
+  .video-distance { width: 280px; }
+  .video-distance-total { gap: 8px; padding-left: 15px; padding-right: 15px; }
+  .video-distance-number { font-size: 31px; }
+  .video-distance-unit { font-size: 14px; }
+  .drive-inspector { width: 285px; padding: 17px; }
+}
+@media(max-width:820px) {
+  .drive-inspector { top: auto; right: 10px; left: 10px; bottom: max(10px,env(safe-area-inset-bottom)); width: auto; max-height: 40dvh; padding: 17px; border-radius: 24px; animation-name: drive-picker-open; }
+  body.drive-inspector-open .video-drive-card { gap: 9px; padding: 12px 14px; }
+  body.drive-inspector-open #videoDriveDetails, body.drive-inspector-open .video-drive-actions { display: none; }
+  .drive-inspector-route svg { height: 90px; }
+  .drive-inspector h2 { font-size: 21px; }
+  body.drive-replay-open .drive-inspector { max-height: 52dvh; }
+}
+@media(max-height:600px) and (min-width:821px) { .drive-inspector-route svg { height: 80px; } }
+@media(prefers-reduced-motion:reduce) { .drive-picker-options, .drive-inspector { animation: none; } .drive-picker-trigger, .drive-picker-chevron { transition: none; } }
+
+/* Keep map zoom controls above the phone inspection sheet. */
+@media(max-width:820px) { body.drive-inspector-open .leaflet-control-zoom { margin-bottom: calc(40dvh + 24px); } }
+body:has(.settings-wrap.open) .video-distance { opacity: 0; pointer-events: none; }
+@media(max-width:820px) {
+  /* The main map supplies the route on small screens; keep distress visible in the sheet. */
+  .drive-inspector-route { display: none; }
+  .drive-inspector-stats { margin: 10px 0; }
+  .drive-inspector-actions { margin-bottom: 12px; }
+  .drive-inspector-subtitle { margin-bottom: 10px; }
+}
+@media(max-width:820px) {
+  body:has(#videoDriveTrigger[aria-expanded="true"]) .drive-inspector { visibility: hidden; pointer-events: none; }
+}

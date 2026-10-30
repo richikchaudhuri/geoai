@@ -10,11 +10,11 @@ A native SwiftUI and MapKit client for the GeoAI road-damage platform. It includ
 
 This build is configured for the supplied GeoAI Supabase project and Cloudinary `dnxpt5gea` cloud with unsigned preset `photos`. It refreshes live observations at launch, retaining the bundled demo and last successful metadata load for fallback. Apple Maps, place search and remote photos need internet access; maps and photos are not fully available offline.
 
-Camera reporting requires a physical device. The simulator shows an explicit message instead of attempting camera startup. Build 11, with a curated mix of loading orbs, is installed and launch-verified on the iPhone 17. See [verification](VERIFICATION.md). **Live camera preview, capture and a real upload still require hands-on verification.**
+Camera reporting requires a physical device. The simulator shows an explicit message instead of attempting camera startup. The current survey update is **1.0.0 build 13, built and launched in the iPhone simulator with Xcode 27.2**. Native Map and Browse were visually checked on an iPhone 18 Pro simulator running iOS 27.0; Browse reported **361 observations · live data** on October 30, 2026. This is simulator verification, not a physical-iPhone install. The older build 11 launch check in [verification](VERIFICATION.md) does not verify build 13. **Live camera preview, capture and a real upload still require hands-on verification.**
 
 ## Experience
 
-- Native Map, Filters, Report and Browse tabs, with Liquid Glass and the selected-tab pill on iOS 26+; earlier releases use system material styling.
+- Native Map, Video, Filters, Report and Browse tabs, with Liquid Glass and the selected-tab pill on iOS 26+; earlier releases use system material styling.
 - Six map appearances, clustered severity dots, night-capture outlines and a pulse on selection.
 - A road overview card that swipes above the tab bar and collapses behind it.
 - Assessment cards slide horizontally with Next, Previous or swiping; opening a marker retains the upward entrance.
@@ -26,9 +26,23 @@ Camera reporting requires a physical device. The simulator shows an explicit mes
 
 ![Historical Report screen — build 5; the larger build 7 layout awaits a device screenshot](docs/report.png)
 
+## Video survey dashboard
+
+In the hosted survey, Video mode shows only drive routes and drive observations. Tap its Map button to restore walking/citizen observations with their saved filters. Deploy the current shared website to receive this behavior; it does not require a new native iOS build.
+
+The **Video** tab adds the shared GeoAI survey website inside a retained `WKWebView`. The existing native Map, Filters, Browse and camera-report flows remain available. The current dashboard shows all drive routes, a separate total-distance pill, a custom drive menu, the selected drive's route and distress details, and numbered citizen/video clusters that separate as you zoom. Its persistent photo card includes captured-frame browsing and route replay; Next and Play keep the card open, replay focuses the car, and the photo/details stack on phone screens or sit side by side on wider screens. It also retains survey filters, map styles, CSV export and shareable views. Changing tabs retains the survey view and prepared maps. Explicit Reload preserves its current URL/view and revalidates the served HTML so a deployment with updated versioned scripts can be fetched. Website startup handles tile readiness. The native Apple Maps tab continues to use MapKit's own rendering and cache.
+
+Set `GISDashboardURL` in `GeoAI/Resources/Configuration.plist` before distribution, or open **Video → Survey connection** and enter the HTTPS address on the device. The address is saved locally. Use the same server for the updated website at `/gis/app/` and the read-only `/gis/*` API. **No live survey server address is supplied in this repository.** An empty configuration presents setup; it does not substitute a demo or claim a production connection. Deploy the root website from the same source package, including its current HTML, all scripts, styles and fonts, before connecting build 13. The iOS app loads that hosted website; it does not embed a second copy of its assets. Publishing or building the app does not deploy the website or API.
+
+The Video tab opens with `?video=1`, without changing the map's position. Build 13 checks the document's `geoai-survey-ui-version` revision (at least `20261030`), Video control and required GIS, survey, drive-player and inspector script tags. An old/incomplete deployment shows a clear update-and-retry message. This checks compatibility before asynchronous map/data initialization; it does not mistake a still-loading map for an incompatible page. Bounded loading/error states offer Retry or Open in browser. Release builds accept HTTPS only. Debug builds additionally accept loopback HTTP (`localhost`, `127.0.0.1`, `::1`) for an iOS simulator using the local sample server; loopback on a physical phone refers to the phone itself. LAN HTTP is not accepted. `Info-Debug.plist` allows local networking only; release ATS settings remain unchanged.
+
+**Share/export bridge:** the web app dispatches cancelable document events `geoai:share` with `{url,title}` and `geoai:export` with `{url,filename}` or `{content,filename,mime:"text/csv"}`. The native layer accepts main-frame messages from the configured origin only, validates share/download destinations, rejects cross-origin download redirects, caps CSV exports at 10 MiB, and presents the iOS share sheet. Temporary export files are removed after sharing. Outbound HTTPS links open in Safari; Debug builds also allow previews from the exact configured loopback HTTP origin. Arbitrary URL schemes and unrelated HTTP origins are blocked. This is a narrow bridge with no native file-read or database access.
+
+Xcode 27.2 is installed and a full Debug iOS Simulator build succeeded for build 13 on October 30, 2026. The app was installed and launched on the iPhone 18 Pro / iOS 27.0 simulator; native Map tiles/clusters and Browse with live observations were visually verified. Earlier 34 Foundation regression checks, injected bridge and dashboard capability checks, and Swift syntax parsing also passed. Physical-device camera/upload, native sharing/download interactions and the complete hosted Video flow remain to be verified. No signed IPA was produced. See `SURVEY_VERIFICATION.md` for the exact checks and release handoff.
+
 ## Connect live data
 
-All four service values in `GeoAI/Resources/Configuration.plist` are configured for this build. They are public client settings, including a legacy `anon` key, and will be present in the installed app. `Configuration.example.plist` remains a blank reset template. No privileged server credentials are used.
+The four existing capture/citizen service values in `GeoAI/Resources/Configuration.plist` are configured for this build. They are public client settings, including a legacy `anon` key, and will be present in the installed app. `Configuration.example.plist` remains a blank reset template. No privileged server credentials are used.
 
 | Field | Value |
 |---|---|
@@ -36,6 +50,7 @@ All four service values in `GeoAI/Resources/Configuration.plist` are configured 
 | `SupabasePublicKey` | Publishable key (`sb_publishable_…`) or legacy `anon` JWT |
 | `CloudinaryCloudName` | Cloudinary cloud name |
 | `CloudinaryUploadPreset` | Unsigned image-upload preset |
+| `GISDashboardURL` | HTTPS URL of the deployed shared survey dashboard, normally `/gis/app/` |
 
 MapKit requires no additional map API key. Keep service-role keys, database passwords, Cloudinary secrets and AI-provider keys on the backend; the iOS client rejects privileged Supabase keys.
 

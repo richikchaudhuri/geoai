@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/surveyRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/bg_primary">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="8dp"
+        android:background="@color/bar_background">
+
+        <ImageButton
+            android:id="@+id/surveyBack"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="14dp"
+            android:src="@drawable/ic_arrow_left"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/back_to_capture"
+            app:tint="@color/bar_icon_tint" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/open_survey_map"
+            android:textColor="@color/bar_text"
+            android:textSize="16sp"
+            android:fontFamily="@font/sf_display_medium" />
+
+        <TextView
+            android:id="@+id/surveyReload"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:gravity="center"
+            android:text="@string/survey_reload_symbol"
+            android:textSize="28sp"
+            android:textColor="@color/bar_text"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="@string/survey_reload" />
+
+        <ImageButton
+            android:id="@+id/surveySettings"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="13dp"
+            android:src="@drawable/ic_settings"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/survey_settings"
+            app:tint="@color/bar_icon_tint" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/surveyProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:indeterminate="true"
+        android:visibility="gone" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <WebView
+            android:id="@+id/surveyWebView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/surveyFeedback"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginBottom="64dp"
+            android:paddingHorizontal="20dp"
+            android:paddingVertical="12dp"
+            android:textColor="@color/pill_text"
+            android:background="@drawable/location_pill_bg"
+            android:textSize="15sp"
+            android:fontFamily="@font/sf_display_regular"
+            android:accessibilityLiveRegion="polite"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/surveyMessagePanel"
+            android:visibility="gone"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:padding="28dp">
+
+            <TextView
+                android:id="@+id/surveyMessageTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/survey_connect_title"
+                android:textSize="25sp"
+                android:fontFamily="@font/sf_display_medium"
+                android:textColor="@color/bar_text" />
+
+            <TextView
+                android:id="@+id/surveyMessageBody"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/survey_connect_body"
+                android:textSize="16sp"
+                android:fontFamily="@font/sf_display_regular"
+                android:gravity="center"
+                android:textColor="@color/pill_subtitle" />
+
+            <Button
+                android:id="@+id/surveyMessageAction"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:text="@string/survey_connect" />
+        </LinearLayout>
+    </FrameLayout>
+</LinearLayout>

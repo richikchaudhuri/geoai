@@ -12,6 +12,7 @@
 		1B210D7EB943C51A444EF32B /* ThirdPartyNotices.txt in Resources */ = {isa = PBXBuildFile; fileRef = 675BB662FDFE8C2C8BBA99FB /* ThirdPartyNotices.txt */; };
 		29C45508E6E6035B3A6F68BA /* DashboardSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2877B10558EDC94FB9F0A97 /* DashboardSheets.swift */; };
 		4F8A764E1E555237C7A7D7CA /* CaptureViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE72E1A2BFAD899C11C707A /* CaptureViewModel.swift */; };
+		5239A6F637A04AFF236DF770 /* SurveyDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A953F379EB63CB6008383BD /* SurveyDashboardView.swift */; };
 		595556EE29A600A4172A0ECA /* AppConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26CA3523253353FB28E5769E /* AppConfiguration.swift */; };
 		5EB8EDDC3FB590F9F881A66C /* CaptureDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90FE3BBE37B52FF66C81343 /* CaptureDraftStore.swift */; };
 		6B45BDA42E4F681BB2E1CD63 /* GeoAICore in Frameworks */ = {isa = PBXBuildFile; productRef = 45AF3ED4B37A2468D09A1850 /* GeoAICore */; };
@@ -35,6 +36,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0A953F379EB63CB6008383BD /* SurveyDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurveyDashboardView.swift; sourceTree = "<group>"; };
 		172862E709DFA1928C318CD9 /* CaptureLocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureLocationManager.swift; sourceTree = "<group>"; };
 		26CA3523253353FB28E5769E /* AppConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfiguration.swift; sourceTree = "<group>"; };
 		41764EC7359F58005A5946E4 /* GeoAICore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GeoAICore; path = Packages/GeoAICore; sourceTree = SOURCE_ROOT; };
@@ -76,6 +78,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		316DBEF038D1DD36CC0787E6 /* Survey */ = {
+			isa = PBXGroup;
+			children = (
+				0A953F379EB63CB6008383BD /* SurveyDashboardView.swift */,
+			);
+			path = Survey;
+			sourceTree = "<group>";
+		};
 		430903AE51F2F6CF778EF1EB /* Services */ = {
 			isa = PBXGroup;
 			children = (
@@ -132,6 +142,7 @@
 				563E69EEE7B1563FC7C1ADE2 /* Map */,
 				E0B084B015ECA79FC700C393 /* Resources */,
 				430903AE51F2F6CF778EF1EB /* Services */,
+				316DBEF038D1DD36CC0787E6 /* Survey */,
 				61CD34577726DF212DF5B9C5 /* Views */,
 			);
 			path = GeoAI;
@@ -270,6 +281,7 @@
 				A6D3341441D503AF5C47BEB8 /* GeoAIApp.swift in Sources */,
 				B9A4EC30E892BEA516D618BF /* NativeMapView.swift in Sources */,
 				95574CD08057094483FA5B0F /* PlaceSearchModel.swift in Sources */,
+				5239A6F637A04AFF236DF770 /* SurveyDashboardView.swift in Sources */,
 				17D47E52BD65546E9E9F963B /* UserLocationController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -282,7 +294,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 13;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = GeoAI/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -301,9 +313,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 13;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = GeoAI/Info.plist;
+				INFOPLIST_FILE = "GeoAI/Info-Debug.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

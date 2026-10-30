@@ -6,6 +6,7 @@ struct AppConfiguration {
     let publicKey: String
     let cloudName: String
     let uploadPreset: String
+    let surveyDashboardURL: String
 
     init(bundle: Bundle = .main) {
         let url = bundle.url(forResource: "Configuration", withExtension: "plist")
@@ -21,6 +22,7 @@ struct AppConfiguration {
         publicKey = value("SupabasePublicKey")
         cloudName = value("CloudinaryCloudName")
         uploadPreset = value("CloudinaryUploadPreset")
+        surveyDashboardURL = value("GISDashboardURL")
     }
 
     var hasDatabase: Bool { supabaseURL != nil && !publicKey.isEmpty }

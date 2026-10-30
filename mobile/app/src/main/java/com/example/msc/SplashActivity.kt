@@ -30,6 +30,14 @@ class SplashActivity : AppCompatActivity() {
     private lateinit var loadingBarFill: View
     private var barWidth = 0
     private var isProceeding = false
+    private var locationCancellation: CancellationTokenSource? = null
+    private val locationDeadline = Runnable {
+        // Viewing survey results must not depend on obtaining a GPS fix.
+        locationCancellation?.cancel()
+        locationReady = true
+        updateProgress(100)
+        checkAndProceed()
+    }
 
     private val locationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
@@ -98,9 +106,11 @@ class SplashActivity : AppCompatActivity() {
     private fun fetchLocation() {
         updateProgress(60)
         val fusedClient = LocationServices.getFusedLocationProviderClient(this)
+        locationCancellation = CancellationTokenSource()
+        loadingBarFill.postDelayed(locationDeadline, 8_000)
         fusedClient.getCurrentLocation(
             Priority.PRIORITY_HIGH_ACCURACY,
-            CancellationTokenSource().token
+            locationCancellation!!.token
         ).addOnSuccessListener { location ->
             lifecycleScope.launch {
                 updateProgress(100)
@@ -128,11 +138,13 @@ class SplashActivity : AppCompatActivity() {
                     prefs.apply()
                 }
                 locationReady = true
+                loadingBarFill.removeCallbacks(locationDeadline)
                 checkAndProceed()
             }
         }.addOnFailureListener {
             updateProgress(100)
             locationReady = true
+            loadingBarFill.removeCallbacks(locationDeadline)
             checkAndProceed()
         }
     }
@@ -154,6 +166,12 @@ class SplashActivity : AppCompatActivity() {
                 }
             }, 300)
         }
+    }
+
+    override fun onDestroy() {
+        loadingBarFill.removeCallbacks(locationDeadline)
+        locationCancellation?.cancel()
+        super.onDestroy()
     }
 
 }

@@ -50,6 +50,10 @@ struct DashboardView: View {
                 .tabItem { Label("Map", systemImage: "map") }
                 .tag(DashboardTab.map)
 
+            SurveyDashboardView(configuration: store.configuration)
+                .tabItem { Label("Video", systemImage: "video") }
+                .tag(DashboardTab.video)
+
             FilterSheet(store: store, embedded: true) { selectedTab = .map }
                 .tabItem { Label("Filters", systemImage: "line.3.horizontal.decrease") }
                 .tag(DashboardTab.filters)
@@ -385,7 +389,7 @@ private enum DashboardSheet: String, Identifiable {
 }
 
 private enum DashboardTab: Hashable {
-    case map, filters, report, browse
+    case map, video, filters, report, browse
 }
 
 private struct SummaryHeightKey: PreferenceKey {

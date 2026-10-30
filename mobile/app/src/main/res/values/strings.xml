@@ -1,3 +1,25 @@
 <resources>
     <string name="app_name">GeoAI</string>
+    <string name="survey_map">Map</string>
+    <string name="open_survey_map">Open road survey map</string>
+    <string name="back_to_capture">Back to camera</string>
+    <string name="survey_settings">Map data connection</string>
+    <string name="survey_reload">Reload survey map</string>
+    <string name="survey_reload_symbol" translatable="false">↻</string>
+    <string name="survey_connect_title">Citizen map</string>
+    <string name="survey_connect_body">Your existing citizen observations open automatically. A separate drive connection is optional.</string>
+    <string name="survey_connect">Connect</string>
+    <string name="survey_use_citizen">Citizen map</string>
+    <string name="survey_retry">Try again</string>
+    <string name="survey_server">Optional drive connection</string>
+    <string name="survey_server_hint">https://survey.example.org</string>
+    <string name="survey_server_invalid">Enter an HTTPS server address without a path, query or password.</string>
+    <string name="survey_server_help">Citizen observations already use your existing project. Connect a drive service only if you have its HTTPS address, or choose Citizen map to return. The drive service must provide /gis APIs and allow this app.</string>
+    <string name="survey_saved">CSV saved</string>
+    <string name="survey_export_failed">The CSV could not be saved. Check your connection and try again.</string>
+    <string name="survey_export_too_large">Export too large. Narrow the filters and try again (maximum 10 MiB).</string>
+    <string name="survey_export_busy">Finish or cancel the current export first.</string>
+    <string name="survey_export_progress">Saving CSV…</string>
+    <string name="survey_unavailable">The map could not open. Check your connection, then try again.</string>
+    <string name="survey_share_title">Share this map view</string>
 </resources>

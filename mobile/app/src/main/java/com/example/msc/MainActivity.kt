@@ -154,8 +154,7 @@ class MainActivity : AppCompatActivity() {
             if (granted) {
                 startCamera()
             } else {
-                Toast.makeText(this, "Camera permission is required", Toast.LENGTH_LONG).show()
-                finish()
+                Toast.makeText(this, "Camera permission is needed for photos. The survey map is still available.", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -201,6 +200,9 @@ class MainActivity : AppCompatActivity() {
         binding.thumbnailButton.setOnClickListener { withPhotoStorage { showGalleryDialog() } }
         binding.locationButton.setOnClickListener { onLocationButtonTapped() }
         binding.settingsButton.setOnClickListener { showSettingsDialog() }
+        binding.surveyButton.setOnClickListener {
+            startActivity(Intent(this, SurveyActivity::class.java))
+        }
         setupFlashButton()
 
         // setBackgroundBlurRadius requires API 31+ (Android 12). Older
@@ -444,6 +446,12 @@ class MainActivity : AppCompatActivity() {
     // ── Shutter Cooldown ──
 
     private fun onShutterPressed() {
+        if (imageCapture == null) {
+            if (checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+            } else Toast.makeText(this, "Camera is preparing. Please try again.", Toast.LENGTH_SHORT).show()
+            return
+        }
         val now = System.currentTimeMillis()
         val remaining = shutterCooldownEnd - now
 

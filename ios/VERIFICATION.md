@@ -1,5 +1,9 @@
 # Verification
 
+## Build 13 — October 30, 2026
+
+Xcode 27.2 Debug Simulator build succeeded. The app was installed and launched on iPhone 18 Pro / iOS 27.0. Native Map tiles/clusters and Browse were visually checked; Browse showed **361 observations · live data**. No upload or database write was performed. See `SURVEY_VERIFICATION.md` for the current scope and remaining hardware/Video checks.
+
 ## Reliability review — October 27, 2026
 
 The core merge now suppresses historical URL-only assessments when an explicit

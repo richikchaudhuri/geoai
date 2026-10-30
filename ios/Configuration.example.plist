@@ -5,4 +5,5 @@
   <key>SupabasePublicKey</key><string></string>
   <key>CloudinaryCloudName</key><string></string>
   <key>CloudinaryUploadPreset</key><string></string>
+  <key>GISDashboardURL</key><string></string>
 </dict></plist>
